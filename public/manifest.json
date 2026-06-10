@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Faceit Veto Helper",
+  "version": "0.1.0",
+  "description": "CS2 map veto helper for FACEIT",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "baniq@yveldi.dev",
+      "strict_min_version": "109.0"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.faceit.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
