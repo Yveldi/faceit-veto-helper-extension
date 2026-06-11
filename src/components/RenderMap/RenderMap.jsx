@@ -1,21 +1,21 @@
-import { useEffect, useState } from "react";
 import "./RenderMap.css";
 import { prettifyMapName, defaultMapThumbnail } from "../../utils";
 
 export default function RenderMap({ map, mapThumbnail, winOdds }) {
-  if (!mapThumbnail && defaultMapThumbnail[map]) mapThumbnail=defaultMapThumbnail[map]
+  const thumbnail = mapThumbnail ?? defaultMapThumbnail[map];
+  const hasOdds = typeof winOdds === "number";
+  // 0 = red, 60 = yellow, 120 = green. convenient.
+  const hue = (winOdds / 100) * 120;
+
   return (
-    <span key={map} className="renderMap-root">
-      <img src={mapThumbnail} />
+    <span className="renderMap-root">
+      {thumbnail && <img src={thumbnail} alt={map} />}
       <span
-        key={map}
-        className="renderMap-text j-center a-center"
-        style={{
-          color: `hsl(${hue}, 100%, 40%)`,
-        }}
+        className="renderMap-text"
+        style={hasOdds ? { color: `hsl(${hue}, 100%, 40%)` } : undefined}
       >
         <div>{prettifyMapName(map)}</div>
-        {winOdds && <div>{winOdds}%</div>}
+        {hasOdds && <div>{winOdds}%</div>}
       </span>
     </span>
   );

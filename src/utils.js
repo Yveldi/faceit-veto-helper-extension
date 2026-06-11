@@ -1,5 +1,5 @@
-// export const faceitAPI = "https://www.faceit.com/api"
-export const faceitAPI = "https:/faceit-proxy-production.up.railway.app";
+// Same-origin because the content script runs on faceit.com — no CORS, no proxy needed
+export const faceitAPI = "https://www.faceit.com/api";
 
 export const defaultMapPool = [
   "de_dust2",

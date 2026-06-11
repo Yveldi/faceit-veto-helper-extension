@@ -1,31 +1,16 @@
-.banSuggestion-title {
-    color: #e7e8ec;
-    text-align: center;
-}
-.mainTeamName {
-    color: #ff5500;
-}
-
-.banSuggestion-main {
-    flex-direction: column;
-}
-
-.banSuggestion-bans {
-    flex-direction: column;
-    gap: 5px;
-    margin-top: 10px;
-}
-
 .renderMap-root {
     display: flex;
     flex-direction: row;
+    align-items: center;
+    box-sizing: border-box;
+    flex: 1 1 150px;
+    min-width: 130px;
+    max-width: 220px;
+    height: 60px;
+    padding: 10px 12px;
     font-size: 14px;
     font-weight: 600;
-    align-content: center;
-    align-self: center;
-    width: 220px;
-    height: 60px;
-    padding: 10px 12px 10px 12px;
+    color: #e7e8ec;
     border: solid 1px #23252f;
     border-left: 2px solid #ff5500;
     border-radius: 8px;
@@ -34,12 +19,14 @@
 }
 
 .renderMap-root > img {
-    height: 50px;
+    height: 40px;
+    border-radius: 4px;
     align-self: center;
-    margin-right: 15px;
+    margin-right: 10px;
 }
 
 .renderMap-text {
+    display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
