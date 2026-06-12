@@ -35,7 +35,6 @@ export default function AutoAccept({ enabled, delay }) {
       if (secs <= 0) {
         clearInterval(timerRef.current);
         setRemaining(0);
-        console.log("FVH: auto-accepting match");
         findAcceptButton(dialog)?.click();
       } else {
         setRemaining(secs);
@@ -47,7 +46,6 @@ export default function AutoAccept({ enabled, delay }) {
   const cancel = () => {
     clearInterval(timerRef.current);
     setRemaining(null);
-    console.log("FVH: auto-accept cancelled");
   };
 
   if (!dialog || !enabled || remaining === null) return null;

@@ -27,20 +27,23 @@ async function fetchPlayerProfile(playerId, signal) {
 
 // --- pure helpers -----------------------------------------------------------
 
-// Map pool + thumbnails MUST come from the same source, or maps end up with
-// undefined thumbnails. Always return them as a pair.
+// The lobby's map pool lives in payload.maps and/or matchCustom.tree; we take
+// whichever lists more maps as the available pool. Pool + thumbnails MUST come
+// from the same source or maps get undefined thumbnails — returned as a pair.
 //
-// payload.maps narrows to the *picked* map(s) once voting ends (e.g. a single
-// map in a finished match), while matchCustom.tree keeps the full votable pool.
-// So use whichever source lists more maps, and only fall back to the default
-// pool when neither gives us 2+.
-function resolveMapPool(payload) {
-  const fromMaps = payload.maps ?? [];
-  const fromTree = payload.matchCustom?.tree?.map?.values?.value ?? [];
-  const candidates =
-    fromTree.length >= fromMaps.length ? fromTree : fromMaps;
+// With 2+ maps we always show that available (bannable) pool. With exactly ONE
+// map (common in Premium queues — nothing to ban) the "Regret Helper" decides:
+// off (default) shows just that map; on shows the full default pool, so you can
+// see your win probability on maps you can't play. Zero maps → default pool.
+function resolveMapPool(mapData, regretHelperEnabled) {
+  const fromMaps = mapData?.fromMaps ?? [];
+  const fromTree = mapData?.fromTree ?? [];
+  const candidates = fromTree.length >= fromMaps.length ? fromTree : fromMaps;
 
-  if (candidates.length >= 2) {
+  const showAvailable =
+    candidates.length >= 2 ||
+    (candidates.length === 1 && !regretHelperEnabled);
+  if (showAvailable) {
     return {
       mapPool: candidates.map((m) => m.class_name),
       thumbnails: Object.fromEntries(
@@ -58,7 +61,6 @@ function findMainTeamIndex(teams, selfUserId) {
   const index = teams.findIndex((team) =>
     team.roster.some((player) => player.profile.id === selfUserId),
   );
-  console.log("FVH: selfUserId =", selfUserId, "→ mainTeamIndex =", index);
   return index === -1 ? 0 : index;
 }
 
@@ -77,18 +79,16 @@ async function enrichRoster(roster, signal) {
 // --- hook -------------------------------------------------------------------
 
 // Loads everything Stage 2/3 needs for a match. `teams` is null while loading.
-// On a match change it clears immediately and aborts the previous load, so a
-// stale match never lingers over a newly opened room.
-export default function useMatchData(matchId, selfUserId) {
+// The map pool is derived reactively from the fetched data + the Regret Helper
+// flag, so toggling it re-resolves the pool without refetching anything.
+export default function useMatchData(matchId, selfUserId, regretHelperEnabled) {
   const [teams, setTeams] = useState(null);
-  const [mapPool, setMapPool] = useState(defaultMapPool);
-  const [mapThumbnails, setMapThumbnails] = useState({ ...defaultMapThumbnail });
+  const [mapData, setMapData] = useState(null);
 
   useEffect(() => {
     // Drop stale data right away (the old match must not show over the new one).
     setTeams(null);
-    setMapPool(defaultMapPool);
-    setMapThumbnails({ ...defaultMapThumbnail });
+    setMapData(null);
     if (!matchId) return;
 
     const controller = new AbortController();
@@ -97,7 +97,10 @@ export default function useMatchData(matchId, selfUserId) {
     (async () => {
       try {
         const payload = await fetchMatchPayload(matchId, signal);
-        const { mapPool: pool, thumbnails } = resolveMapPool(payload);
+        const sources = {
+          fromMaps: payload.maps ?? [],
+          fromTree: payload.matchCustom?.tree?.map?.values?.value ?? [],
+        };
 
         const enrichedTeams = [];
         for (const team of Object.values(payload.teams)) {
@@ -109,11 +112,12 @@ export default function useMatchData(matchId, selfUserId) {
         }
 
         if (signal.aborted) return;
-        setMapPool(pool);
-        setMapThumbnails(thumbnails);
+        setMapData(sources);
         setTeams(enrichedTeams);
       } catch (err) {
-        if (!signal.aborted) console.error("FVH: failed to load match data", err);
+        if (!signal.aborted) {
+          console.error("Faceit Veto Helper: failed to load match data", err);
+        }
       }
     })();
 
@@ -121,8 +125,11 @@ export default function useMatchData(matchId, selfUserId) {
     return () => controller.abort();
   }, [matchId]);
 
-  // Recomputed from loaded data — keeps a late-resolving selfUserId from
-  // triggering a refetch.
+  const { mapPool, mapThumbnails } = useMemo(() => {
+    const { mapPool, thumbnails } = resolveMapPool(mapData, regretHelperEnabled);
+    return { mapPool, mapThumbnails: thumbnails };
+  }, [mapData, regretHelperEnabled]);
+
   const mainTeamIndex = useMemo(
     () => (teams ? findMainTeamIndex(teams, selfUserId) : 0),
     [teams, selfUserId],

@@ -33,21 +33,15 @@ export default function MatchMaps() {
     let cancelled = false;
     (async () => {
       const userId = await getSelfUserId();
-      console.log("FVH: userId =", userId);
-      if (!userId) {
-        console.log("FVH: could not determine user ID, aborting");
-        return;
-      }
+      if (!userId) return;
       // No added delay: fetchWithRetry's global queue paces every request.
       for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
         const id = await getCurrentMatchId(userId);
         if (id) {
-          console.log("FVH: matchId =", id);
           if (!cancelled) setMatchId(id);
           return;
         }
       }
-      console.log("FVH: no match found in groupByState");
     })();
     return () => {
       cancelled = true;
@@ -67,12 +61,10 @@ export default function MatchMaps() {
         const matchMaps = await getMatchMaps(matchId);
         if (cancelled) return;
         if (matchMaps?.length) {
-          console.log("FVH: maps =", matchMaps);
           setMaps(matchMaps);
           return;
         }
       }
-      console.log("FVH: gave up finding maps");
     })();
     return () => {
       cancelled = true;

@@ -6,6 +6,7 @@ const DEFAULTS = {
   autoAcceptEnabled: true,
   autoAcceptDelay: 10,
   vetoHelperEnabled: true,
+  regretHelperEnabled: false,
 };
 
 const els = {
@@ -14,6 +15,7 @@ const els = {
   delayValue: document.getElementById("delayValue"),
   delayRow: document.getElementById("delayRow"),
   vetoHelperEnabled: document.getElementById("vetoHelperEnabled"),
+  regretHelperEnabled: document.getElementById("regretHelperEnabled"),
 };
 
 function save(partial) {
@@ -31,6 +33,7 @@ api.storage.local.get(DEFAULTS, (s) => {
   els.autoAcceptDelay.value = s.autoAcceptDelay;
   els.delayValue.textContent = s.autoAcceptDelay;
   els.vetoHelperEnabled.checked = s.vetoHelperEnabled;
+  els.regretHelperEnabled.checked = s.regretHelperEnabled;
   reflectDelayEnabled();
 });
 
@@ -49,4 +52,8 @@ els.autoAcceptDelay.addEventListener("change", () => {
 
 els.vetoHelperEnabled.addEventListener("change", () => {
   save({ vetoHelperEnabled: els.vetoHelperEnabled.checked });
+});
+
+els.regretHelperEnabled.addEventListener("change", () => {
+  save({ regretHelperEnabled: els.regretHelperEnabled.checked });
 });

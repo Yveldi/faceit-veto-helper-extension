@@ -6,7 +6,6 @@ function decodeJwtPayload(token) {
 }
 
 // Scan localStorage for a FACEIT JWT and read the user guid out of it.
-// Synchronous and instant — no network — so this is the fast path.
 function userIdFromLocalJwt() {
   for (let i = 0; i < localStorage.length; i++) {
     const raw = localStorage.getItem(localStorage.key(i));
@@ -20,7 +19,7 @@ function userIdFromLocalJwt() {
       const id = payload.guid ?? payload.sub ?? payload.userId;
       if (id) return id;
     } catch {
-      // not a JWT we can read; keep scanning
+      // not a JWT we can read. keep scanning
     }
   }
   return null;
@@ -29,15 +28,12 @@ function userIdFromLocalJwt() {
 let cachedUserId = null;
 
 // ID of the logged-in user. Resolved from the local JWT first (instant),
-// then memoized; sessions/me is only a fallback if no token is found.
+// then memorised; sessions/me is only a fallback if no token is found.
 export async function getSelfUserId() {
   if (cachedUserId) return cachedUserId;
 
   const localId = userIdFromLocalJwt();
-  if (localId) {
-    console.log("FVH: userId from local JWT");
-    return (cachedUserId = localId);
-  }
+  if (localId) return (cachedUserId = localId);
 
   try {
     const res = await fetchWithRetry(`${faceitAPI}/users/v1/sessions/me`);
@@ -49,16 +45,15 @@ export async function getSelfUserId() {
       const id = profile?.id ?? profile?.guid ?? profile?.userId;
       if (id) return (cachedUserId = id);
     }
-  } catch (error) {
-    console.log("FVH: sessions/me fallback failed", error);
+  } catch {
+    // sessions/me is only a fallback; if it fails we just report no user.
   }
   return null;
 }
 
 // The ID of the user's active matchmaking match (the kind that pops the
 // "Match ready" dialog with a votable map pool), or null. Scheduled league /
-// championship / hub matches are ignored — they live in groupByState too but
-// carry no matchmaking map pool.
+// championship / hub matches are explicitly ignored as they also live in groupByState.
 export async function getCurrentMatchId(userId) {
   const res = await fetchWithRetry(
     `${faceitAPI}/match/v1/matches/groupByState?${new URLSearchParams({ userId })}`,
@@ -67,17 +62,6 @@ export async function getCurrentMatchId(userId) {
   const matches = Object.values(payload)
     .flat()
     .filter((m) => m?.id);
-
-  console.log(
-    "FVH: groupByState matches =",
-    matches.map((m) => ({
-      id: m.id,
-      state: m.state,
-      status: m.status,
-      playing: m.playing,
-      entityType: m.entity?.type,
-    })),
-  );
 
   const queueMatches = matches.filter((m) => m.entity?.type === "matchmaking");
   // If several exist, prefer a live one over anything scheduled.
@@ -117,10 +101,6 @@ export async function getMatchMaps(matchId) {
   ];
   if (tagMaps.length) return tagMaps;
 
-  // Maps not assigned yet — log the shape so we can see when they appear
-  console.log("FVH: maps not ready", {
-    state: payload.state,
-    tags: payload.tags,
-  });
+  // Maps not assigned to the match yet.
   return null;
 }

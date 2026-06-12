@@ -13,12 +13,12 @@ import StageThree from "./StageThree";
 // Root of the Lobby Veto Helper overlay. Resolves the match (from the URL) and
 // the user (local JWT), loads the data, and renders the active stage inside a
 // draggable window. Renders nothing off a matchroom or when disabled.
-export default function VetoHelper() {
+export default function VetoHelper({ regretHelperEnabled }) {
   const matchId = useMatchIdFromUrl();
   const selfUserId = useSelfUserId();
   const [stage, setStage] = useState(2);
   const { position, isDragging, onPointerDown } = useDraggable();
-  const data = useMatchData(matchId, selfUserId);
+  const data = useMatchData(matchId, selfUserId, regretHelperEnabled);
 
   if (!matchId) return null;
 

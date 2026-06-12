@@ -152,13 +152,14 @@ export async function getPlayerStats(player, noOfMatches = 90, signal) {
           faceitRating[match.map].push(match.faceit_rating);
           winRate[match.map].push(match.win ? 100 : 0);
         }
-        // console.log(`${match.map} - ${match.win ? "won" : "lost"} - Rating: ${match.faceit_rating} - Started: ${match.start_time}`)
       });
     } catch (error) {
-      console.log(
-        "Something went wrong while fetching stats of player ${player}.",
+      // Let cancellation (a new match aborting this load) propagate quietly.
+      if (error?.name === "AbortError") throw error;
+      console.error(
+        `Faceit Veto Helper: failed to fetch stats for ${player.nickname ?? player.id}`,
+        error,
       );
-      console.log(error);
     }
   }
   const finalFaceitRating = {};

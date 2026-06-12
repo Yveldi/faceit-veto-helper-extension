@@ -33,7 +33,6 @@ export default function useMatchDetector() {
   useEffect(() => {
     let current = null;
     const update = (el) => {
-      console.log(`FVH: match dialog ${el ? "detected" : "gone"}`);
       current = el;
       setDialog(el);
     };

@@ -7,6 +7,10 @@ export const SETTINGS_DEFAULTS = {
   autoAcceptEnabled: true,
   autoAcceptDelay: 10, // seconds, 1–27
   vetoHelperEnabled: true,
+  // "Veto Regret Helper™": only affects single-map lobbies (nothing to ban).
+  // When on, show the full default pool instead of just the one map, so you can
+  // see your win probability on maps you can't play. Off by default; useless.
+  regretHelperEnabled: false,
 };
 
 const storage =

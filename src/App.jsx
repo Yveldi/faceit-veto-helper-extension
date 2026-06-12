@@ -14,7 +14,9 @@ export default function App() {
         delay={settings.autoAcceptDelay}
       />
       {/* Auto-accepts the match-ready popup after a countdown */}
-      {settings.vetoHelperEnabled && <VetoHelper />}
+      {settings.vetoHelperEnabled && (
+        <VetoHelper regretHelperEnabled={settings.regretHelperEnabled} />
+      )}
       {/* Suggests bans in matchrooms */}
     </>
   );
