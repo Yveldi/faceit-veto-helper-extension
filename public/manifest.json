@@ -9,6 +9,11 @@
       "strict_min_version": "109.0"
     }
   },
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Faceit Veto Helper"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.faceit.com/*"],

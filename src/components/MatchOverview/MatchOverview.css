@@ -1,0 +1,51 @@
+.fvh-root .matchOverview {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    justify-content: center;
+    /* Never reflow to fit the window — keep the three columns in one row and
+       let it run off-screen (consistent layout regardless of window size). */
+    flex-wrap: nowrap;
+    width: max-content;
+}
+
+.fvh-root .matchOverview-middle {
+    display: flex;
+    align-items: center;
+}
+
+.fvh-root .teamColumn {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.fvh-root .teamColumn.right {
+    align-items: flex-start;
+}
+
+.fvh-root .teamColumn .teamName {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #fff;
+    font-size: 15px;
+    margin-bottom: 4px;
+    width: fit-content;
+    padding: 4px 10px 4px 4px;
+    background-color: rgba(13, 14, 19, 0.85);
+    border-radius: 20px;
+}
+
+.fvh-root .teamColumn .team-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 100%;
+}
+
+.fvh-root .teamColumn .teamMembers {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}

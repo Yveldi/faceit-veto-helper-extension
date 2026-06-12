@@ -68,7 +68,7 @@ async function acquireFetchSlot(reqId, attempt) {
   await myTurn;
 }
 
-export async function fetchWithRetry(url) {
+export async function fetchWithRetry(url, { signal } = {}) {
   const maxRetries = 10;
   const baseWaitTime = 4;
   const maxWaitTime = 20;
@@ -77,10 +77,15 @@ export async function fetchWithRetry(url) {
   const shortUrl = url.length > 50 ? `...${url.slice(-50)}` : url;
 
   for (let i = 0; i < maxRetries; i++) {
+    // Optional cancellation. Bail before taking a queue slot and again after,
+    // so an aborted request never fires and frees the queue immediately. Timing
+    // for normal (no-signal) callers is unchanged.
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     await acquireFetchSlot(reqId, i);
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     const fetchStart = performance.now();
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
     const fetchMs = (performance.now() - fetchStart).toFixed(0);
 
     if (response.ok) return response;
@@ -111,7 +116,7 @@ export function matchID(input) {
   return input.match(regex)?.[0] ?? null;
 }
 
-export async function getPlayerStats(player, noOfMatches = 90) {
+export async function getPlayerStats(player, noOfMatches = 90, signal) {
   const maxMatchesPerFetch = 90;
   const winRate = {};
   const faceitRating = {};
@@ -120,6 +125,7 @@ export async function getPlayerStats(player, noOfMatches = 90) {
   const lastFetchAmount = noOfMatches % maxMatchesPerFetch;
   let offsetToken = 0;
   for (let i = 0; i < timesToFetch; i++) {
+    if (signal?.aborted) break;
     try {
       const res = await fetchWithRetry(
         `${faceitAPI}/statistics/v1/cs2/players/${player.id}/match-rounds?${new URLSearchParams(
@@ -132,6 +138,7 @@ export async function getPlayerStats(player, noOfMatches = 90) {
             ...(offsetToken != 0 && { offset_token: offsetToken }),
           },
         )}`,
+        { signal },
       );
       const data = (await res.json()).payload;
       offsetToken = data.next_offset_token;

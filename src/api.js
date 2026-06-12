@@ -44,7 +44,7 @@ export async function getSelfUserId() {
     if (res.ok) {
       const data = await res.json();
       // sessions/me returns the profile at the top level (no `payload` wrapper),
-      // but tolerate a wrapped shape too in case it differs by environment.
+      // but tolerate a wrapped shape too, just in case.
       const profile = data.payload ?? data;
       const id = profile?.id ?? profile?.guid ?? profile?.userId;
       if (id) return (cachedUserId = id);

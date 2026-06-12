@@ -1,0 +1,70 @@
+.fvh-root .fvh-tooltip {
+    position: fixed;
+    z-index: 2147483647;
+    padding: 8px 10px;
+    background-color: #0d0e13;
+    border: solid 1px #23252f;
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Stage 2: a team's players + their rating on the hovered map. */
+.fvh-root .mapPlayerRatings {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.fvh-root .mapPlayerRatings .team-head {
+    font-weight: 700;
+    font-size: 12px;
+    color: #e7e8ec;
+    margin-bottom: 2px;
+}
+
+.fvh-root .mapPlayerRatings .team-head.main {
+    color: #ff5500;
+}
+
+.fvh-root .mapPlayerRatings .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
+}
+
+.fvh-root .mapPlayerRatings .name {
+    font-weight: 700;
+    color: #e7e8ec;
+}
+
+.fvh-root .mapPlayerRatings .value {
+    font-size: 12px;
+    color: #bebebe;
+}
+
+/* Stage 3: factors behind one player's rating on the hovered map. */
+.fvh-root .playerMapFactors {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: #bebebe;
+}
+
+.fvh-root .playerMapFactors .factor {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.fvh-root .playerMapFactors .factor b {
+    color: #e7e8ec;
+    font-weight: 600;
+}
+
+.fvh-root .playerMapFactors .empty {
+    color: #8a8a8a;
+}

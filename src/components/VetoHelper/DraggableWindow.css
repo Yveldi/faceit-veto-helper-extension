@@ -1,0 +1,48 @@
+.fvh-root.fvh-window {
+    position: fixed;
+    /* one below MatchMaps' max z-index so the match-found row stays on top */
+    z-index: 2147483646;
+    /* Transparent: the cards provide their own backgrounds. No border/shadow,
+       and no size cap — the window sizes to its content and may go out of
+       bounds (drag it into view) rather than scrolling. */
+    background: transparent;
+    padding: 8px;
+    color: #e7e8ec;
+    font-family: inherit;
+    font-size: 14px;
+    user-select: none;
+    cursor: default;
+}
+
+.fvh-root .fvh-window-header {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.fvh-root .fvh-btn {
+    cursor: pointer;
+    background-color: #15171f;
+    color: #e7e8ec;
+    border: solid 1px #23252f;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.fvh-root .fvh-btn:hover {
+    border-color: #ff5500;
+}
+
+.fvh-root .fvh-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: #23252f;
+}
+
+.fvh-root .fvh-stage1 {
+    display: flex;
+}

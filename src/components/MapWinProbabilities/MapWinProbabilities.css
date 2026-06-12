@@ -1,0 +1,31 @@
+.fvh-root .mapWinProbs {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.fvh-root .mapWinProbs-title {
+    color: #e7e8ec;
+    text-align: center;
+    font-size: 14px;
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    background-color: rgba(13, 14, 19, 0.85);
+    border-radius: 6px;
+}
+
+.fvh-root .mapWinProbs-title .mainTeamName {
+    color: #ff5500;
+    font-weight: 700;
+}
+
+.fvh-root .mapWinProbs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.fvh-root .mapWinProbs-item {
+    position: relative;
+    display: flex;
+}

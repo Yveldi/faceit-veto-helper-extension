@@ -1,0 +1,23 @@
+.fvh-root .loadingDot {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
+    color: #ff5500;
+    margin: 5px auto;
+    width: fit-content;
+    font-size: 11px;
+    padding: 5px 12px;
+    background-color: rgba(13, 14, 19, 0.85);
+    border-radius: 6px;
+}
+
+.fvh-root .loadingDot .flashing {
+    animation: fvh-flash 1s infinite;
+    line-height: 1;
+    margin-bottom: 2px;
+}
+
+@keyframes fvh-flash {
+    0%, 100% { font-weight: 1000; font-size: 18px; }
+    50% { font-weight: 500; }
+}

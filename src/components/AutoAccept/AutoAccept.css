@@ -1,0 +1,43 @@
+.fvh-autoaccept {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background-color: #0d0e13;
+    border: solid 1px #23252f;
+    border-left: 3px solid #ff5500;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    color: #e7e8ec;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: sans-serif;
+}
+
+.fvh-autoaccept-count {
+    white-space: nowrap;
+}
+
+.fvh-autoaccept-count b {
+    color: #ff5500;
+}
+
+.fvh-autoaccept button {
+    cursor: pointer;
+    background-color: #15171f;
+    color: #e7e8ec;
+    border: solid 1px #23252f;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.fvh-autoaccept button:hover {
+    border-color: #ff5500;
+}

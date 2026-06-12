@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import useMatchDetector from "../../hooks/useMatchDetector";
+import useMatchIdFromUrl from "../../hooks/useMatchIdFromUrl";
 import { getSelfUserId, getCurrentMatchId, getMatchMaps } from "../../api";
 import RenderMap from "../RenderMap/RenderMap";
 import "./MatchMaps.css";
@@ -9,9 +10,21 @@ const DEFAULT_TOP = 80;
 
 export default function MatchMaps() {
   const dialog = useMatchDetector();
+  const roomMatchId = useMatchIdFromUrl();
   const [matchId, setMatchId] = useState(null);
   const [maps, setMaps] = useState(null);
   const [anchorTop, setAnchorTop] = useState(DEFAULT_TOP);
+
+  // Hide once we've navigated into THIS match's own room — accepting forces a
+  // load of /room/{matchId}. We compare against the previewed matchId (not just
+  // "any room"), so finding a match while viewing a *previous* matchroom still
+  // shows the preview; it only clears when the new room actually loads.
+  useEffect(() => {
+    if (matchId && roomMatchId === matchId) {
+      setMatchId(null);
+      setMaps(null);
+    }
+  }, [roomMatchId, matchId]);
 
   // When a match dialog appears, resolve which match we're in. The match
   // shows up in groupByState early (during the SCHEDULED/accept phase).
@@ -84,7 +97,7 @@ export default function MatchMaps() {
     };
   }, [dialog]);
 
-  if (!maps) return null;
+  if (!maps || roomMatchId === matchId) return null;
 
   return createPortal(
     <div className="matchMaps-root" style={{ top: anchorTop }}>

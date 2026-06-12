@@ -1,0 +1,39 @@
+.fvh-root .flex { display: flex; }
+.fvh-root .a-center { align-items: center; }
+
+.fvh-root .PlayerCard {
+    display: flex;
+    color: #e7e8ec;
+    font-size: 12px;
+    font-weight: 600;
+    align-items: center;
+    width: 220px;
+    height: 42px;
+    padding: 6px 10px;
+    border: solid 1px #23252f;
+    border-radius: 8px;
+    background-color: #15171f;
+    justify-content: space-between;
+}
+
+.fvh-root .PlayerCard .avatar {
+    width: 26px;
+    height: 26px;
+    margin-right: 8px;
+    border-radius: 5px;
+    border: none;
+}
+
+.fvh-root .PlayerCard .flag-slot {
+    margin-right: 3px;
+    display: inline-flex;
+}
+
+.fvh-root .PlayerCard .skill {
+    display: flex;
+    flex-direction: column;
+    color: #ff5500;
+    font-weight: 400;
+    font-size: 11px;
+    align-items: center;
+}

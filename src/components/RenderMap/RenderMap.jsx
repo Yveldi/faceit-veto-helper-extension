@@ -9,7 +9,7 @@ export default function RenderMap({ map, mapThumbnail, winOdds }) {
 
   return (
     <span className="renderMap-root">
-      {thumbnail && <img src={thumbnail} alt={map} />}
+      {thumbnail && <img src={thumbnail} alt={map} draggable={false} />}
       <span
         className="renderMap-text"
         style={hasOdds ? { color: `hsl(${hue}, 100%, 40%)` } : undefined}
