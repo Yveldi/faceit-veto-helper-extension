@@ -71,6 +71,33 @@
         accent-color: #ff5500;
         cursor: pointer;
       }
+      .block-head {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .block-desc {
+        font-size: 12px;
+        color: #8a8c94;
+        margin-bottom: 8px;
+      }
+      .block-selects {
+        display: flex;
+        gap: 8px;
+      }
+      select {
+        flex: 1;
+        min-width: 0;
+        background-color: #15171f;
+        color: #e7e8ec;
+        border: 1px solid #23252f;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      select:disabled {
+        cursor: not-allowed;
+      }
       /* toggle switch */
       .switch {
         position: relative;
@@ -137,6 +164,17 @@
         step="1"
         value="10"
       />
+    </div>
+
+    <div class="sub" id="blockMapsRow">
+      <div class="block-head">Don't auto-accept these maps</div>
+      <div class="block-desc">
+        Pick up to two. A match found on one of them won't be auto-accepted.
+      </div>
+      <div class="block-selects">
+        <select id="blockMap1"></select>
+        <select id="blockMap2"></select>
+      </div>
     </div>
 
     <hr />

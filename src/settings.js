@@ -6,6 +6,10 @@
 export const SETTINGS_DEFAULTS = {
   autoAcceptEnabled: true,
   autoAcceptDelay: 10, // seconds, 1–27
+  // Up to 2 map ids (e.g. "de_overpass"). When the found match is a single one
+  // of these, auto-accept is cancelled for it. Non-empty also makes auto-accept
+  // wait until the map is known (see AutoAccept).
+  autoAcceptBlockedMaps: [],
   vetoHelperEnabled: true,
   // "Veto Regret Helper™": only affects single-map lobbies (nothing to ban).
   // When on, show the full default pool instead of just the one map, so you can

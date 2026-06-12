@@ -1,34 +1,16 @@
 // Same-origin because the content script runs on faceit.com — no CORS, no proxy needed
 export const faceitAPI = "https://www.faceit.com/api";
 
-export const defaultMapPool = [
-  "de_dust2",
-  "de_mirage",
-  "de_nuke",
-  "de_ancient",
-  "de_inferno",
-  "de_overpass",
-  "de_anubis",
-  "de_cache",
-];
+// Single source of truth for the default map pool, shared with the popup (which
+// fetches dist/mapPool.json). Update mapPool.json when the active pool changes
+// and both the content script and the control panel follow. Keep thumbnails in
+// the same file so the pool stays consistent.
+import mapPool from "./mapPool.json";
 
-export const defaultMapThumbnail = {};
-defaultMapThumbnail["de_dust2"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/adf58ac6-b0f3-40e9-87ef-0af23fc60918_1695819116078.jpeg";
-defaultMapThumbnail["de_mirage"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/796b5b23-41e4-4387-a4a9-0d28c1c57456_1695819136505.jpeg";
-defaultMapThumbnail["de_nuke"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/15ff938d-a70d-4d0b-9bf9-6be215cdb193_1695819151395.jpeg";
-defaultMapThumbnail["de_ancient"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/a7d193ca-9498-4546-bf7b-da33e3e429a5_1695819186093.jpeg";
-defaultMapThumbnail["de_inferno"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/a2cb95be-1a3f-49f3-a5fa-a02503d02086_1695819214782.jpeg";
-defaultMapThumbnail["de_overpass"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/6d7e8e7f-f136-49f3-a4ca-a9afffbe8022_1695819165013.jpeg";
-defaultMapThumbnail["de_anubis"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/847a46ed-fbcc-4347-a64a-bc2d6a24be89_1695819226252.jpeg";
-defaultMapThumbnail["de_cache"] =
-  "https://assets.faceit-cdn.net/third_party/games/ce652bd4-0abb-4c90-9936-1133965ca38b/assets/votables/db483b30-8cbb-488f-8105-0b60c111cc9a_1741030130806.jpeg";
+export const defaultMapPool = mapPool.map((m) => m.id);
+export const defaultMapThumbnail = Object.fromEntries(
+  mapPool.map((m) => [m.id, m.thumbnail]),
+);
 
 export function sleep(seconds) {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
