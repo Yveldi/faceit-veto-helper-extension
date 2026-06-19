@@ -1,24 +1,18 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { computeTeamScores } from "../../stats";
-import useMatchIdFromUrl from "../../hooks/useMatchIdFromUrl";
-import useSelfUserId from "../../hooks/useSelfUserId";
-import useMatchData from "../../hooks/useMatchData";
 import useDraggable from "../../hooks/useDraggable";
 import DraggableWindow from "./DraggableWindow";
 import StageOne from "./StageOne";
 import StageTwo from "./StageTwo";
 import StageThree from "./StageThree";
 
-// Root of the Lobby Veto Helper overlay. Resolves the match (from the URL) and
-// the user (local JWT), loads the data, and renders the active stage inside a
-// draggable window. Renders nothing off a matchroom or when disabled.
-export default function VetoHelper({ regretHelperEnabled }) {
-  const matchId = useMatchIdFromUrl();
-  const selfUserId = useSelfUserId();
+// Root of the Lobby Veto Helper overlay. Match data is loaded once in App and
+// passed in; this renders the active stage inside a draggable window. Renders
+// nothing off a matchroom.
+export default function VetoHelper({ matchId, data }) {
   const [stage, setStage] = useState(2);
   const { position, isDragging, onPointerDown } = useDraggable();
-  const data = useMatchData(matchId, selfUserId, regretHelperEnabled);
 
   if (!matchId) return null;
 

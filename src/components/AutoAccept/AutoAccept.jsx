@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { prettifyMapName } from "../../utils";
+import useMatchDetector from "../../hooks/useMatchDetector";
 import "./AutoAccept.css";
 
-const MAP_WAIT_TIMEOUT = 15; // seconds to wait for the map before giving up
-
 // The match-ready dialog's action button is the one that isn't the close (X).
-// Targeting it by elimination (not by the text "Accept") keeps it working
-// regardless of the user's FACEIT language.
+// Targeting it by elimination (not the text "Accept") keeps it language-safe.
 function findAcceptButton(dialog) {
   const buttons = [...dialog.querySelectorAll("button")];
   return (
@@ -18,72 +15,51 @@ function findAcceptButton(dialog) {
   );
 }
 
-// Counts down while a "Match ready" dialog is open, then clicks accept.
-//
-// When the user has blocked maps, the behaviour changes: we never accept before
-// we know the match's map. Once it's known, if it's a single blocked map we
-// cancel; otherwise we accept (respecting the delay). If the map is still
-// unknown after MAP_WAIT_TIMEOUT we accept anyway — but only if it never
-// resolved to a blocked map (a blocked map cancels for good).
-export default function AutoAccept({ dialog, maps, enabled, delay, blockedMaps }) {
-  const [display, setDisplay] = useState(null);
+// Counts down while a "Match ready" dialog is open, then clicks accept. A
+// Cancel button stops it. (Map-based cancel was removed: FACEIT no longer
+// exposes the map before you accept.)
+export default function AutoAccept({ enabled, delay }) {
+  const dialog = useMatchDetector();
+  const [remaining, setRemaining] = useState(null);
   const timerRef = useRef(null);
   const doneRef = useRef(false);
-  // Read latest maps/blockedMaps inside the interval without restarting it.
-  const mapsRef = useRef(maps);
-  const blockedRef = useRef(blockedMaps);
-  mapsRef.current = maps;
-  blockedRef.current = blockedMaps;
+  const sawButtonRef = useRef(false);
 
   useEffect(() => {
     if (!dialog || !enabled) {
-      setDisplay(null);
+      setRemaining(null);
       return;
     }
     doneRef.current = false;
+    sawButtonRef.current = false;
     const startTime = Date.now();
 
     const finish = () => {
       doneRef.current = true;
       clearInterval(timerRef.current);
     };
-    const accept = () => {
-      finish();
-      setDisplay(null);
-      findAcceptButton(dialog)?.click();
-    };
 
     const tick = () => {
       if (doneRef.current) return;
-      const elapsed = (Date.now() - startTime) / 1000;
-      const remaining = Math.max(0, Math.ceil(delay - elapsed));
-      const blocked = blockedRef.current ?? [];
-      const featureOn = blocked.length > 0;
-      const detected = mapsRef.current;
-      const mapKnown = Array.isArray(detected) && detected.length > 0;
 
-      if (!featureOn) {
-        if (elapsed >= delay) accept();
-        else setDisplay({ text: `Auto accept in: ${remaining}s`, cancelable: true });
-        return;
-      }
-
-      // A single decided map that's on the block list cancels for good.
-      if (mapKnown && detected.length === 1 && blocked.includes(detected[0])) {
+      // Once the accept button is gone after having been present, the match was
+      // accepted (manually or by us) or the dialog moved past the accept step.
+      // Stop and hide — the dialog can linger in a "waiting for others" state.
+      const acceptBtn = findAcceptButton(dialog);
+      if (acceptBtn) sawButtonRef.current = true;
+      else if (sawButtonRef.current) {
         finish();
-        setDisplay({
-          text: `Auto-accept cancelled: ${prettifyMapName(detected[0])}`,
-          cancelable: false,
-        });
+        setRemaining(null);
         return;
       }
-      if (mapKnown && elapsed >= delay) return accept();
-      if (!mapKnown && elapsed >= MAP_WAIT_TIMEOUT) return accept();
 
-      if (!mapKnown && elapsed >= delay) {
-        setDisplay({ text: "Waiting for map…", cancelable: true });
+      const elapsed = (Date.now() - startTime) / 1000;
+      if (elapsed >= delay) {
+        finish();
+        setRemaining(null);
+        acceptBtn?.click();
       } else {
-        setDisplay({ text: `Auto accept in: ${remaining}s`, cancelable: true });
+        setRemaining(Math.max(0, Math.ceil(delay - elapsed)));
       }
     };
 
@@ -95,19 +71,19 @@ export default function AutoAccept({ dialog, maps, enabled, delay, blockedMaps }
   const cancel = () => {
     doneRef.current = true;
     clearInterval(timerRef.current);
-    setDisplay(null);
+    setRemaining(null);
   };
 
-  if (!display) return null;
+  if (remaining === null) return null;
 
   return createPortal(
     <div className="fvh-autoaccept">
-      <span className="fvh-autoaccept-count">{display.text}</span>
-      {display.cancelable && (
-        <button type="button" onClick={cancel}>
-          Cancel
-        </button>
-      )}
+      <span className="fvh-autoaccept-count">
+        Auto accept in: <b>{remaining}s</b>
+      </span>
+      <button type="button" onClick={cancel}>
+        Cancel
+      </button>
     </div>,
     document.body,
   );

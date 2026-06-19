@@ -1,36 +1,54 @@
-import MatchMaps from "./components/MatchMaps/MatchMaps";
+import { useEffect } from "react";
 import VetoHelper from "./components/VetoHelper/VetoHelper";
 import AutoAccept from "./components/AutoAccept/AutoAccept";
+import AutoVeto from "./components/AutoVeto/AutoVeto";
 import useSettings from "./hooks/useSettings";
-import useMatchFoundMaps from "./hooks/useMatchFoundMaps";
+import useMatchIdFromUrl from "./hooks/useMatchIdFromUrl";
+import useSelfUserId from "./hooks/useSelfUserId";
+import useMatchData from "./hooks/useMatchData";
+import { saveSelfMapStats } from "./settings";
 
 export default function App() {
   const settings = useSettings();
-  // One shared detection of the found match, used by both the map preview and
-  // the auto-accept map check (so the pool is resolved only once).
-  const matchFound = useMatchFoundMaps();
+  const matchId = useMatchIdFromUrl();
+  const selfUserId = useSelfUserId();
+
+  // "always" only applies when the Regret Helper is on (kept in sync by the
+  // popup; enforced here too so stale storage can't break it).
+  const regretAlways =
+    settings.regretHelperEnabled && settings.regretHelperAlways;
+  const needData = settings.vetoHelperEnabled || settings.autoVetoEnabled;
+  const data = useMatchData(
+    needData ? matchId : null,
+    selfUserId,
+    settings.regretHelperEnabled,
+    regretAlways,
+  );
+
+  // Cache the user's own per-map stats whenever match data finishes loading —
+  // auto-veto's win-value fallback (see AUTOVETO_SPEC.md). Runs regardless of
+  // which feature triggered the load.
+  useEffect(() => {
+    if (!data.teams || !selfUserId) return;
+    const self = data.teams
+      .flatMap((team) => team.roster)
+      .find((p) => p.profile.id === selfUserId);
+    if (self) saveSelfMapStats(self.stats);
+  }, [data.teams, selfUserId]);
 
   return (
     <>
-      <MatchMaps
-        dialog={matchFound.dialog}
-        roomMatchId={matchFound.roomMatchId}
-        matchId={matchFound.matchId}
-        maps={matchFound.maps}
-      />
-      {/* Shows which maps are available in the (pre-)accept screen */}
+      {/* Auto-accepts the match-ready popup after a countdown */}
       <AutoAccept
-        dialog={matchFound.dialog}
-        maps={matchFound.maps}
         enabled={settings.autoAcceptEnabled}
         delay={settings.autoAcceptDelay}
-        blockedMaps={settings.autoAcceptBlockedMaps}
       />
-      {/* Auto-accepts the match-ready popup after a countdown */}
-      {settings.vetoHelperEnabled && (
-        <VetoHelper regretHelperEnabled={settings.regretHelperEnabled} />
+      {/* Win probabilities & player stats overlay in matchrooms */}
+      {settings.vetoHelperEnabled && <VetoHelper matchId={matchId} data={data} />}
+      {/* Auto-bans servers & maps when you're captain */}
+      {settings.autoVetoEnabled && (
+        <AutoVeto matchId={matchId} data={data} settings={settings} />
       )}
-      {/* Suggests bans in matchrooms */}
     </>
   );
 }

@@ -57,6 +57,25 @@
       .sub.disabled {
         opacity: 0.4;
       }
+      /* a sub-option visually nested under the row above it */
+      .sub-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 0 12px 14px;
+        padding-left: 12px;
+        border-left: 2px solid #ff5500;
+      }
+      .sub-option.hidden {
+        display: none;
+      }
+      .sub-option .title {
+        font-size: 13px;
+      }
+      .regret-group .row {
+        margin-bottom: 6px;
+      }
       .delay-head {
         display: flex;
         justify-content: space-between;
@@ -70,33 +89,6 @@
         width: 100%;
         accent-color: #ff5500;
         cursor: pointer;
-      }
-      .block-head {
-        font-weight: 600;
-        margin-bottom: 6px;
-      }
-      .block-desc {
-        font-size: 12px;
-        color: #8a8c94;
-        margin-bottom: 8px;
-      }
-      .block-selects {
-        display: flex;
-        gap: 8px;
-      }
-      select {
-        flex: 1;
-        min-width: 0;
-        background-color: #15171f;
-        color: #e7e8ec;
-        border: 1px solid #23252f;
-        border-radius: 6px;
-        padding: 6px 8px;
-        font-size: 13px;
-        cursor: pointer;
-      }
-      select:disabled {
-        cursor: not-allowed;
       }
       /* toggle switch */
       .switch {
@@ -135,6 +127,105 @@
       .switch input:checked + .slider::before {
         transform: translateX(18px);
       }
+      /* auto-veto group: dims and ignores input when the feature is off */
+      .av-group.disabled {
+        opacity: 0.4;
+        pointer-events: none;
+      }
+      .pref-toggle {
+        width: 100%;
+        margin-top: 4px;
+        background-color: #15171f;
+        color: #e7e8ec;
+        border: 1px solid #23252f;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .pref-toggle:hover {
+        border-color: #ff5500;
+      }
+      .pref-editor {
+        margin-top: 10px;
+      }
+      .pref-editor.hidden {
+        display: none;
+      }
+      .pref-help {
+        font-size: 12px;
+        color: #8a8c94;
+        margin-bottom: 8px;
+      }
+      .pref-section {
+        margin-bottom: 14px;
+      }
+      .pref-label {
+        display: block;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+      .dd-zone-label {
+        font-size: 11px;
+        color: #8a8c94;
+        margin: 8px 0 3px;
+      }
+      .dd-zone {
+        min-height: 30px;
+        border: 1px dashed #23252f;
+        border-radius: 6px;
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .dd-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        background-color: #15171f;
+        border: 1px solid #23252f;
+        border-left: 3px solid #ff5500;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 13px;
+        cursor: grab;
+        user-select: none;
+      }
+      .dd-item.dragging {
+        opacity: 0.4;
+      }
+      /* tiny map thumbnail: half the veto helper's 40px tall image */
+      .dd-thumb {
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+        object-fit: cover;
+        border-radius: 3px;
+      }
+      /* small country flag before a server name */
+      .dd-flag {
+        width: 20px;
+        height: 14px;
+        flex-shrink: 0;
+        object-fit: cover;
+        border-radius: 2px;
+      }
+      /* ban-first is red, keep-last is green; dynamic stays orange */
+      .dd-zone[data-zone="first"] .dd-item {
+        border-left-color: #d94949;
+      }
+      .dd-zone[data-zone="last"] .dd-item {
+        border-left-color: #32d35a;
+      }
+      .dd-zone-label.label-ban {
+        color: #d94949;
+      }
+      .dd-zone-label.label-keep {
+        color: #32d35a;
+      }
     </style>
   </head>
   <body>
@@ -166,17 +257,6 @@
       />
     </div>
 
-    <div class="sub" id="blockMapsRow">
-      <div class="block-head">Don't auto-accept these maps</div>
-      <div class="block-desc">
-        Pick up to two. A match found on one of them won't be auto-accepted.
-      </div>
-      <div class="block-selects">
-        <select id="blockMap1"></select>
-        <select id="blockMap2"></select>
-      </div>
-    </div>
-
     <hr />
 
     <div class="row">
@@ -190,18 +270,135 @@
       </label>
     </div>
 
+    <div class="regret-group">
+      <div class="row">
+        <div>
+          <span class="title">Veto Regret Helper&trade;</span>
+          <span class="desc">
+            In one-map lobbies, show the full pool anyway, so you can see your
+            win probability on the maps you can't play
+          </span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="regretHelperEnabled" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="sub-option hidden" id="regretAlwaysRow">
+        <div>
+          <span class="title">Always show full pool</span>
+          <span class="desc">In every lobby, not just one-map ones</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="regretHelperAlways" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <hr />
+
     <div class="row">
       <div>
-        <span class="title">Veto Regret Helper&trade;</span>
+        <span class="title">Auto veto</span>
         <span class="desc">
-          In one-map lobbies, show the full pool anyway, so you can see your
-          win probability on the maps you can't play
+          Ban servers &amp; maps for you, but only when you're the captain
         </span>
       </div>
       <label class="switch">
-        <input type="checkbox" id="regretHelperEnabled" />
+        <input type="checkbox" id="autoVetoEnabled" />
         <span class="slider"></span>
       </label>
+    </div>
+
+    <div class="av-group" id="autoVetoGroup">
+      <button type="button" class="pref-toggle" id="prefToggle">
+        Edit veto preferences ▾
+      </button>
+
+      <div class="pref-editor hidden" id="prefEditor">
+        <div class="sub" id="autoVetoDelayRow">
+          <div class="delay-head">
+            <span>Ban delay (each)</span>
+            <span class="delay-val"><b id="autoVetoDelayValue">5</b>s</span>
+          </div>
+          <input
+            type="range"
+            id="autoVetoDelay"
+            min="1"
+            max="27"
+            step="1"
+            value="5"
+          />
+        </div>
+
+        <div class="row">
+          <div>
+            <span class="title">Win-rate override</span>
+            <span class="desc">
+              Ban the lowest-win-odds map if it's enough worse than your pick
+            </span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="autoVetoToleranceEnabled" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="sub-option hidden" id="autoVetoToleranceRow">
+          <div style="flex: 1">
+            <div class="delay-head">
+              <span>Tolerance</span>
+              <span class="delay-val"
+                ><b id="autoVetoToleranceValue">10</b> pts</span
+              >
+            </div>
+            <input
+              type="range"
+              id="autoVetoTolerance"
+              min="1"
+              max="40"
+              step="1"
+              value="10"
+            />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <span class="title">Auto ban servers</span>
+            <span class="desc">
+              Also auto-ban during the server phase (off = maps only)
+            </span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="autoVetoServers" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <hr />
+        <p class="pref-help">Drag to set ban order. Top = banned first.</p>
+
+        <div class="pref-section">
+          <span class="pref-label">Maps</span>
+          <div class="dd-zone-label label-ban">Ban first (in order)</div>
+          <div class="dd-zone" data-zone="first" id="zoneFirst"></div>
+          <div class="dd-zone-label">By win odds (lowest first)</div>
+          <div class="dd-zone" data-zone="dynamic" id="zoneDynamic"></div>
+          <div class="dd-zone-label label-keep">
+            Keep / ban last (bottom = protected)
+          </div>
+          <div class="dd-zone" data-zone="last" id="zoneLast"></div>
+        </div>
+
+        <div class="pref-section">
+          <span class="pref-label">Servers</span>
+          <div class="dd-zone-label">Ban first (top) to keep (bottom)</div>
+          <div class="dd-zone" data-zone="server" id="zoneServer"></div>
+        </div>
+      </div>
     </div>
 
     <script src="popup.js"></script>

@@ -31,18 +31,20 @@ async function fetchPlayerProfile(playerId, signal) {
 // whichever lists more maps as the available pool. Pool + thumbnails MUST come
 // from the same source or maps get undefined thumbnails — returned as a pair.
 //
-// With 2+ maps we always show that available (bannable) pool. With exactly ONE
-// map (common in Premium queues — nothing to ban) the "Regret Helper" decides:
-// off (default) shows just that map; on shows the full default pool, so you can
-// see your win probability on maps you can't play. Zero maps → default pool.
-function resolveMapPool(mapData, regretHelperEnabled) {
+// `regretAlways` forces the full default pool regardless of how many maps are
+// bannable. Otherwise: with 2+ maps we show that available (bannable) pool; with
+// exactly ONE map (common in Premium queues — nothing to ban) `regretSingleMap`
+// decides — off (default) shows just that map, on shows the full default pool so
+// you can see your win probability on maps you can't play. Zero maps → default.
+function resolveMapPool(mapData, regretSingleMap, regretAlways) {
   const fromMaps = mapData?.fromMaps ?? [];
   const fromTree = mapData?.fromTree ?? [];
   const candidates = fromTree.length >= fromMaps.length ? fromTree : fromMaps;
 
   const showAvailable =
-    candidates.length >= 2 ||
-    (candidates.length === 1 && !regretHelperEnabled);
+    !regretAlways &&
+    (candidates.length >= 2 ||
+      (candidates.length === 1 && !regretSingleMap));
   if (showAvailable) {
     return {
       mapPool: candidates.map((m) => m.class_name),
@@ -80,8 +82,13 @@ async function enrichRoster(roster, signal) {
 
 // Loads everything Stage 2/3 needs for a match. `teams` is null while loading.
 // The map pool is derived reactively from the fetched data + the Regret Helper
-// flag, so toggling it re-resolves the pool without refetching anything.
-export default function useMatchData(matchId, selfUserId, regretHelperEnabled) {
+// flags, so toggling them re-resolves the pool without refetching anything.
+export default function useMatchData(
+  matchId,
+  selfUserId,
+  regretSingleMap,
+  regretAlways,
+) {
   const [teams, setTeams] = useState(null);
   const [mapData, setMapData] = useState(null);
 
@@ -126,9 +133,13 @@ export default function useMatchData(matchId, selfUserId, regretHelperEnabled) {
   }, [matchId]);
 
   const { mapPool, mapThumbnails } = useMemo(() => {
-    const { mapPool, thumbnails } = resolveMapPool(mapData, regretHelperEnabled);
+    const { mapPool, thumbnails } = resolveMapPool(
+      mapData,
+      regretSingleMap,
+      regretAlways,
+    );
     return { mapPool, mapThumbnails: thumbnails };
-  }, [mapData, regretHelperEnabled]);
+  }, [mapData, regretSingleMap, regretAlways]);
 
   const mainTeamIndex = useMemo(
     () => (teams ? findMainTeamIndex(teams, selfUserId) : 0),

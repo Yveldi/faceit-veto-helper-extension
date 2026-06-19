@@ -1,0 +1,154 @@
+// ============================================================================
+// autoVeto.js — pure decision logic for the auto server & map veto.
+//
+// No DOM, no React, no side effects: given the current veto turn and the user's
+// preferences, decide which option to ban. The component (AutoVeto.jsx) handles
+// detection, the countdown, and the actual click; this file only chooses.
+//
+// Win value = "higher is better" for a map, on a 0..100-ish scale. Source chain
+// (see AUTOVETO_SPEC.md): this match's win probability, else the user's cached
+// own per-map win rate, else unknown. computeWinValues builds that lookup.
+// ============================================================================
+
+import { defaultMapPool } from "./utils";
+import { computeTeamScores, computeMapWinProbabilities } from "./stats";
+import mapPool from "./mapPool.json";
+import serverPool from "./serverPool.json";
+
+// Display name (as shown in the veto row) -> FACEIT map id (de_dust2, ...).
+const NAME_TO_ID = Object.fromEntries(
+  mapPool.map((m) => [m.name.toLowerCase(), m.id]),
+);
+
+// Build a { mapId: winValue } lookup. Match win probabilities take priority;
+// the user's cached own per-map win rate is the fallback. A genuine match prob
+// of 0 (no team data on a map) does not clobber a usable cached value.
+export function computeWinValues(data, selfStats) {
+  const values = {};
+
+  if (selfStats) {
+    for (const [id, entry] of Object.entries(selfStats)) {
+      if (Array.isArray(entry) && typeof entry[1] === "number") {
+        values[id] = entry[1];
+      }
+    }
+  }
+
+  if (data?.teams) {
+    const summaries = data.teams.map((t) => ({
+      ...t,
+      ...computeTeamScores(t.roster, data.mapPool),
+    }));
+    const other = data.mainTeamIndex === 0 ? 1 : 0;
+    const probs = computeMapWinProbabilities({
+      mainTeam: summaries[data.mainTeamIndex],
+      otherTeam: summaries[other],
+      mapPool: data.mapPool,
+    });
+    for (const [id, p] of Object.entries(probs)) {
+      values[id] = p > 0 ? p : values[id] ?? p;
+    }
+  }
+
+  return values;
+}
+
+// Pick the option to ban for the current turn, or null if none applies.
+export function chooseBan(turn, opts) {
+  if (!turn.options.length) return null;
+  if (turn.phase === "server") return chooseServer(turn.options, opts.serverOrder);
+  return chooseMap(turn.options, opts);
+}
+
+// Servers: a single ordered preference (top = ban first, bottom = keep). Ban the
+// available server highest in that order. Servers not in the list (or none set)
+// fall back to the shipped pool order; anything still unranked is kept last.
+function chooseServer(options, serverOrder) {
+  const order = serverOrder?.length ? serverOrder : serverPool.map((s) => s.name);
+  const lower = order.map((n) => n.toLowerCase());
+  const rank = (name) => {
+    const i = lower.indexOf(name.toLowerCase());
+    return i === -1 ? Infinity : i;
+  };
+  let best = null;
+  let bestRank = Infinity;
+  for (const o of options) {
+    const r = rank(o.name);
+    if (best === null || r < bestRank) {
+      best = o;
+      bestRank = r;
+    }
+  }
+  return best;
+}
+
+// Order the dynamic (decide-by-win-odds) maps: lowest win value banned first.
+// Maps with a known value sort ahead of unknown ones; ties and unknowns keep
+// the user's configured order.
+function orderDynamic(dynamicIds, configOrder, winValues) {
+  const cfg = configOrder?.length ? configOrder : defaultMapPool;
+  const cfgIndex = (id) => {
+    const i = cfg.indexOf(id);
+    return i === -1 ? 999 : i;
+  };
+  return [...dynamicIds].sort((a, b) => {
+    const wa = winValues[a];
+    const wb = winValues[b];
+    const ka = typeof wa === "number";
+    const kb = typeof wb === "number";
+    if (ka && kb) return wa - wb || cfgIndex(a) - cfgIndex(b);
+    if (ka) return -1;
+    if (kb) return 1;
+    return cfgIndex(a) - cfgIndex(b);
+  });
+}
+
+// Maps: build the full ban sequence (ban-first list, then dynamic-by-win-odds,
+// then ban-last list with the very bottom most protected) and ban the first
+// still-available map. Win-rate tolerance can override that with the worst map.
+function chooseMap(options, opts) {
+  const { winValues, mapFirst, mapDynamic, mapLast, toleranceEnabled, tolerance } =
+    opts;
+
+  const opt = options
+    .map((o) => ({ ...o, id: NAME_TO_ID[o.name.toLowerCase()] }))
+    .filter((o) => o.id);
+  if (!opt.length) return null;
+
+  const availableIds = opt.map((o) => o.id);
+  const byId = Object.fromEntries(opt.map((o) => [o.id, o]));
+  const firstSet = new Set(mapFirst ?? []);
+  const lastSet = new Set(mapLast ?? []);
+
+  const first = (mapFirst ?? []).filter((id) => availableIds.includes(id));
+  const last = (mapLast ?? []).filter((id) => availableIds.includes(id));
+  const dynamicIds = availableIds.filter(
+    (id) => !firstSet.has(id) && !lastSet.has(id),
+  );
+  const dynamic = orderDynamic(dynamicIds, mapDynamic, winValues);
+
+  const sequence = [...first, ...dynamic, ...last];
+  // Safety net: never strand an available map out of the sequence.
+  for (const id of availableIds) {
+    if (!sequence.includes(id)) sequence.push(id);
+  }
+
+  let candidate = sequence.find((id) => availableIds.includes(id)) ?? availableIds[0];
+
+  if (toleranceEnabled) {
+    const known = availableIds.filter((id) => typeof winValues[id] === "number");
+    if (known.length) {
+      const worst = known.reduce((m, id) =>
+        winValues[id] < winValues[m] ? id : m,
+      );
+      if (
+        typeof winValues[candidate] === "number" &&
+        winValues[candidate] - winValues[worst] >= tolerance
+      ) {
+        candidate = worst;
+      }
+    }
+  }
+
+  return byId[candidate] ?? null;
+}

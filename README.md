@@ -11,20 +11,15 @@ Standalone extension that helps you win matches through smarter map picks.
 
 ## Features
 
-### Current features:
+▣ Lobby Veto Helper: per-map win probabilities for your team and full player stats in matchrooms.
 
-Displays maps in an upcoming match before you accept it.
+▣ Auto-accept the match-ready popup after a countdown you can configure (with a cancel button).
 
-Lobby Veto Helper: per-map win probabilities for your team and full player stats in matchrooms.
+▣ Control panel (toolbar icon) to toggle and manage features.
 
-Auto-accept the match-ready popup after a countdown you can configure (with a cancel button).
+▣ Auto-veto servers
 
-Control panel (toolbar icon) to toggle and manage features.
-
-### Planned features:
-
-Auto-veto servers
-Auto-veto maps based on win probability
+▣ Auto-veto maps, highly configurable.
 
 ## Privacy
 

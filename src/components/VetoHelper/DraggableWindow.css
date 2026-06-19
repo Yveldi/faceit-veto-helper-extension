@@ -1,6 +1,6 @@
 .fvh-root.fvh-window {
     position: fixed;
-    /* one below MatchMaps' max z-index so the match-found row stays on top */
+    /* one below the auto-accept bar's max z-index so the bar stays on top */
     z-index: 2147483646;
     /* Transparent: the cards provide their own backgrounds. No border/shadow,
        and no size cap — the window sizes to its content and may go out of
