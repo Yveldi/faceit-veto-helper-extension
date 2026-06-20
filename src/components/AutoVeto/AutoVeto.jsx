@@ -76,8 +76,8 @@ export default function AutoVeto({ matchId, data, settings }) {
       serverOrder: settings.autoVetoServerOrder,
       worstFirstEnabled: settings.autoVetoWorstFirstEnabled,
       worstFirstGap: settings.autoVetoWorstFirstGap,
-      protectFloorEnabled: settings.autoVetoProtectFloorEnabled,
-      protectFloor: settings.autoVetoProtectFloor,
+      protectEnabled: settings.autoVetoProtectFloorEnabled,
+      protectGap: settings.autoVetoProtectFloor,
     });
     if (!choice) return;
 

@@ -28,9 +28,11 @@ export const SETTINGS_DEFAULTS = {
   autoVetoWorstFirstEnabled: false,
   autoVetoWorstFirstGap: 10,
   // Override #2 ("Don't protect losing maps"): a map in the keep/ban-last group
-  // loses its protection when its win odds fall below `autoVetoProtectFloor` %.
+  // loses its protection when another available map beats its win odds by at
+  // least `autoVetoProtectFloor` percentage points (a gap, not an absolute floor;
+  // the key name is kept for storage compatibility).
   autoVetoProtectFloorEnabled: false,
-  autoVetoProtectFloor: 35,
+  autoVetoProtectFloor: 10,
   // Map preference, three ordered groups (a map is in exactly one). Empty = use
   // the default pool, banned by win odds. Set via the popup's drag editor.
   autoVetoMapFirst: [], // ban these first, in order

@@ -105,11 +105,12 @@ function orderDynamic(dynamicIds, configOrder, winValues) {
 
 // Maps: build the ban sequence (ban-first list, then dynamic-by-win-odds, then
 // ban-last list with the very bottom most protected) and ban the first available
-// map. Two independent win-odds overrides can adjust that pick:
-//   - "Don't protect losing maps": a ban-last map whose win odds fall below the
-//     floor loses its protection (it becomes a normal win-odds map).
+// map. Two independent win-odds overrides can adjust that pick, each by a points
+// GAP (win-probability difference), not an absolute threshold:
+//   - "Don't protect losing maps": a ban-last map loses its protection if some
+//     other available map's win odds beat it by at least `protectGap`.
 //   - "Remove worst maps first": if the worst still-bannable (unprotected) map is
-//     below the ordered pick by at least the gap, ban it first instead.
+//     below the ordered pick by at least `worstFirstGap`, ban it first instead.
 function chooseMap(options, opts) {
   const {
     winValues,
@@ -118,8 +119,8 @@ function chooseMap(options, opts) {
     mapLast,
     worstFirstEnabled,
     worstFirstGap,
-    protectFloorEnabled,
-    protectFloor,
+    protectEnabled,
+    protectGap,
   } = opts;
 
   const opt = options
@@ -131,13 +132,22 @@ function chooseMap(options, opts) {
   const byId = Object.fromEntries(opt.map((o) => [o.id, o]));
   const firstSet = new Set(mapFirst ?? []);
 
-  // Override #2: drop protection from any ban-last map below the win-odds floor,
-  // so it falls back into the dynamic (win-odds) group below.
+  // Override #2: a ban-last map loses its protection when another available map
+  // beats its win odds by >= protectGap (so it drops into the dynamic group).
+  // Only banning it when a clearly BETTER map exists avoids sacrificing a kept
+  // map just because it's low in absolute terms while every option is equally bad.
   const lastSet = new Set((mapLast ?? []).filter((id) => availableIds.includes(id)));
-  if (protectFloorEnabled) {
+  if (protectEnabled) {
     for (const id of [...lastSet]) {
       const wv = winValues[id];
-      if (typeof wv === "number" && wv < protectFloor) lastSet.delete(id);
+      if (typeof wv !== "number") continue;
+      let bestOther = -Infinity;
+      for (const other of availableIds) {
+        if (other === id) continue;
+        const ov = winValues[other];
+        if (typeof ov === "number" && ov > bestOther) bestOther = ov;
+      }
+      if (bestOther > -Infinity && bestOther - wv >= protectGap) lastSet.delete(id);
     }
   }
 

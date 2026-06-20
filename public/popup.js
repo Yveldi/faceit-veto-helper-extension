@@ -14,7 +14,7 @@ const DEFAULTS = {
   autoVetoWorstFirstEnabled: false,
   autoVetoWorstFirstGap: 10,
   autoVetoProtectFloorEnabled: false,
-  autoVetoProtectFloor: 35,
+  autoVetoProtectFloor: 10, // now a points gap, not an absolute floor
   autoVetoMapFirst: [],
   autoVetoMapDynamic: [],
   autoVetoMapLast: [],
@@ -35,17 +35,21 @@ const els = {
   autoVetoDelay: document.getElementById("autoVetoDelay"),
   autoVetoDelayValue: document.getElementById("autoVetoDelayValue"),
   autoVetoServers: document.getElementById("autoVetoServers"),
+  overridesHeader: document.getElementById("overridesHeader"),
   autoVetoWorstFirstEnabled: document.getElementById(
     "autoVetoWorstFirstEnabled",
   ),
+  worstFirstFeature: document.getElementById("worstFirstFeature"),
   autoVetoWorstFirstReveal: document.getElementById("autoVetoWorstFirstReveal"),
   autoVetoWorstFirstGap: document.getElementById("autoVetoWorstFirstGap"),
   autoVetoWorstFirstGapValue: document.getElementById(
     "autoVetoWorstFirstGapValue",
   ),
+  worstFirstExample: document.getElementById("worstFirstExample"),
   autoVetoProtectFloorEnabled: document.getElementById(
     "autoVetoProtectFloorEnabled",
   ),
+  protectFloorFeature: document.getElementById("protectFloorFeature"),
   autoVetoProtectFloorReveal: document.getElementById(
     "autoVetoProtectFloorReveal",
   ),
@@ -53,6 +57,7 @@ const els = {
   autoVetoProtectFloorValue: document.getElementById(
     "autoVetoProtectFloorValue",
   ),
+  protectFloorExample: document.getElementById("protectFloorExample"),
   prefToggle: document.getElementById("prefToggle"),
   prefEditor: document.getElementById("prefEditor"),
   serverReveal: document.getElementById("serverReveal"),
@@ -113,6 +118,13 @@ function setReveal(reveal, open) {
     snapPanel();
   }, REVEAL_MS + 40);
 }
+
+// --- worked examples for the two map overrides ------------------------------
+// id->name (set in initEditor) and the example map pair per feature. The second
+// map is re-rolled when the popup opens or the map lists change, so it's never
+// stale; the slider only re-renders the numbers.
+let mapNameById = {};
+const exampleMaps = { worstFirst: null, protect: null };
 
 function reflectDelayEnabled() {
   const on = els.autoAcceptEnabled.checked;
@@ -230,6 +242,7 @@ els.autoVetoWorstFirstEnabled.addEventListener("change", () => {
 });
 els.autoVetoWorstFirstGap.addEventListener("input", () => {
   els.autoVetoWorstFirstGapValue.textContent = els.autoVetoWorstFirstGap.value;
+  renderExamples();
 });
 els.autoVetoWorstFirstGap.addEventListener("change", () => {
   save({ autoVetoWorstFirstGap: Number(els.autoVetoWorstFirstGap.value) });
@@ -241,6 +254,7 @@ els.autoVetoProtectFloorEnabled.addEventListener("change", () => {
 });
 els.autoVetoProtectFloor.addEventListener("input", () => {
   els.autoVetoProtectFloorValue.textContent = els.autoVetoProtectFloor.value;
+  renderExamples();
 });
 els.autoVetoProtectFloor.addEventListener("change", () => {
   save({ autoVetoProtectFloor: Number(els.autoVetoProtectFloor.value) });
@@ -360,6 +374,7 @@ function initSortable(zones, group, onChange) {
 
 function initEditor(stored, pools) {
   const mapById = Object.fromEntries(pools.maps.map((m) => [m.id, m]));
+  mapNameById = Object.fromEntries(pools.maps.map((m) => [m.id, m.name]));
   const flagByServer = Object.fromEntries(
     pools.servers.map((s) => [s.name, `flags/${s.code}.svg`]),
   );
@@ -397,13 +412,114 @@ function initEditor(stored, pools) {
   const saveServers = () =>
     save({ autoVetoServerOrder: readZone(els.zoneServer) });
 
-  initSortable([els.zoneFirst, els.zoneDynamic, els.zoneLast], "map", saveMaps);
+  // After any map move, persist AND refresh the override visibility/examples.
+  const onMaps = () => {
+    saveMaps();
+    refreshFeatureUI();
+  };
+  initSortable([els.zoneFirst, els.zoneDynamic, els.zoneLast], "map", onMaps);
   initSortable([els.zoneServer], "server", saveServers);
 
   // Persist the reconciled lists (first run, or pool changes) so the content
   // script always sees complete preferences.
   saveMaps();
   saveServers();
+}
+
+// The second example map: a random one from the "by win odds" list, else the
+// least-extreme map of the opposite list (head = top, tail = bottom), else none.
+function exampleSecondId(dynamic, otherList, otherEnd) {
+  if (dynamic.length) {
+    return dynamic[Math.floor(Math.random() * dynamic.length)];
+  }
+  if (otherList.length) {
+    return otherEnd === "head" ? otherList[0] : otherList[otherList.length - 1];
+  }
+  return null;
+}
+
+// Re-pick the example map pair for each feature from the current lists. The
+// first map is the player's most extreme choice: top of ban-first ("most hated")
+// for worst-first, bottom of ban-last ("most protected") for protect.
+function pickExampleMaps() {
+  const first = readZone(els.zoneFirst);
+  const dynamic = readZone(els.zoneDynamic);
+  const last = readZone(els.zoneLast);
+  exampleMaps.worstFirst = first.length
+    ? { firstId: first[0], secondId: exampleSecondId(dynamic, last, "head") }
+    : null;
+  exampleMaps.protect = last.length
+    ? {
+        firstId: last[last.length - 1],
+        secondId: exampleSecondId(dynamic, first, "tail"),
+      }
+    : null;
+}
+
+// Build one worked example using the gap as the (boundary) difference. For
+// worst-first the player's pick is the better map and the worse one is banned
+// first; for protect the protected map is the worse one and gets banned.
+function renderExample(container, pair, gap, mode) {
+  container.replaceChildren();
+  if (!pair || !pair.firstId || !pair.secondId) return;
+  const firstName = mapNameById[pair.firstId] || pair.firstId;
+  const secondName = mapNameById[pair.secondId] || pair.secondId;
+  const base = 40;
+  const high = Math.min(base + gap, 99);
+  const firstOdds = mode === "worstFirst" ? high : base;
+  const secondOdds = mode === "worstFirst" ? base : high;
+  const banned = mode === "worstFirst" ? secondName : firstName;
+  const suffix = mode === "worstFirst" ? " first" : "";
+
+  const span = (cls, text) => {
+    const s = document.createElement("span");
+    if (cls) s.className = cls;
+    s.textContent = text;
+    return s;
+  };
+  const oddsCls = (a, b) => (a < b ? "ex-lo" : "ex-hi");
+
+  container.append(
+    "e.g. ",
+    span("ex-map", firstName),
+    " ",
+    span(oddsCls(firstOdds, secondOdds), `${firstOdds}%`),
+    " vs ",
+    span("ex-map", secondName),
+    " ",
+    span(oddsCls(secondOdds, firstOdds), `${secondOdds}%`),
+    " → ban ",
+    span("ex-ban", banned + suffix),
+  );
+}
+
+function renderExamples() {
+  renderExample(
+    els.worstFirstExample,
+    exampleMaps.worstFirst,
+    Number(els.autoVetoWorstFirstGap.value),
+    "worstFirst",
+  );
+  renderExample(
+    els.protectFloorExample,
+    exampleMaps.protect,
+    Number(els.autoVetoProtectFloor.value),
+    "protect",
+  );
+}
+
+// Each override only does anything when the list it acts on (ban-first for
+// worst-first, ban-last for protect) has maps, so show it only then. Also
+// refresh the examples (re-rolling the random second map). Animated via setReveal.
+function refreshFeatureUI() {
+  pickExampleMaps();
+  renderExamples();
+  const hasFirst = readZone(els.zoneFirst).length > 0;
+  const hasLast = readZone(els.zoneLast).length > 0;
+  // The shared header shows whenever either override is shown.
+  setReveal(els.overridesHeader, hasFirst || hasLast);
+  setReveal(els.worstFirstFeature, hasFirst);
+  setReveal(els.protectFloorFeature, hasLast);
 }
 
 function getSettings() {
@@ -431,6 +547,7 @@ Promise.all([loadPools(), getSettings()]).then(([pools, s]) => {
   reflectProtectFloor();
   reflectServerList();
   initEditor(s, pools);
+  refreshFeatureUI(); // override visibility + worked examples (instant on load)
   setReveal(els.prefEditor, false); // editor starts collapsed (no animation)
   requestAnimationFrame(() =>
     requestAnimationFrame(() => document.body.classList.remove("no-anim")),

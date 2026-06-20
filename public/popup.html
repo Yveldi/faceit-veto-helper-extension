@@ -271,6 +271,36 @@
       .reveal-content .pref-section {
         margin: 0;
       }
+      /* wraps a whole override feature (toggle + threshold) so it can animate in
+         and out as maps enter/leave the ban-first / ban-last lists. Like
+         .pref-editor it animates max-height directly and is NOT a .reveal. */
+      .feature-collapse {
+        overflow: hidden;
+        max-height: 0;
+        transition: max-height 0.24s ease;
+      }
+      /* worked example built from the player's own map choices */
+      .ex {
+        margin-top: 8px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #8a8c94;
+      }
+      .ex .ex-map {
+        color: #e7e8ec;
+      }
+      .ex .ex-hi {
+        color: #32d35a;
+        font-weight: 600;
+      }
+      .ex .ex-lo {
+        color: #d94949;
+        font-weight: 600;
+      }
+      .ex .ex-ban {
+        color: #ff5500;
+        font-weight: 700;
+      }
     </style>
   </head>
   <body class="no-anim">
@@ -394,88 +424,98 @@
           </div>
           <div class="dd-zone" data-zone="first" id="zoneFirst"></div>
           <div class="dd-zone-label label-odds">
-            By win odds (lowest is banned first)
+            Dynamic (Lowest win probability is banned first)
           </div>
           <div class="dd-zone" data-zone="dynamic" id="zoneDynamic"></div>
           <div class="dd-zone-label label-keep">
-            Keep / ban last (bottom = protected)
+            Ban last (bottom = protected)
           </div>
           <div class="dd-zone" data-zone="last" id="zoneLast"></div>
         </div>
 
-        <div class="row">
-          <div>
-            <span class="title">Remove worst maps first</span>
-            <span class="desc">
-              If a map's win odds are far below the map you'd ban, ban it first
-              (your own ban happens a turn later)
-            </span>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="autoVetoWorstFirstEnabled" />
-            <span class="slider"></span>
-          </label>
+        <div class="feature-collapse" id="overridesHeader">
+          <span class="pref-label">Ban preference overrides</span>
         </div>
 
-        <div class="reveal" id="autoVetoWorstFirstReveal">
-          <div class="reveal-inner">
-            <div class="reveal-content">
-              <div class="sub-option" id="autoVetoWorstFirstRow">
-                <div style="flex: 1">
-                  <div class="delay-head">
-                    <span>Only if worse by</span>
-                    <span class="delay-val"
-                      ><b id="autoVetoWorstFirstGapValue">10</b> pts</span
-                    >
+        <div class="feature-collapse" id="worstFirstFeature">
+          <div class="row">
+            <div>
+              <span class="title">Ban first override</span>
+              <span class="desc">
+                Prioritise banning maps if your odds on them are worse than your
+                "ban first" map by this amount.
+              </span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoVetoWorstFirstEnabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="reveal" id="autoVetoWorstFirstReveal">
+            <div class="reveal-inner">
+              <div class="reveal-content">
+                <div class="sub-option" id="autoVetoWorstFirstRow">
+                  <div style="flex: 1">
+                    <div class="delay-head">
+                      <span>Only if worse by</span>
+                      <span class="delay-val"
+                        ><b id="autoVetoWorstFirstGapValue">10</b> pts</span
+                      >
+                    </div>
+                    <input
+                      type="range"
+                      id="autoVetoWorstFirstGap"
+                      min="1"
+                      max="40"
+                      step="1"
+                      value="10"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="autoVetoWorstFirstGap"
-                    min="1"
-                    max="40"
-                    step="1"
-                    value="10"
-                  />
                 </div>
+                <div class="ex" id="worstFirstExample"></div>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="row">
-          <div>
-            <span class="title">Don't protect losing maps</span>
-            <span class="desc">
-              Ban a map from your keep list anyway if its win odds drop below
-              your limit
-            </span>
+        <div class="feature-collapse" id="protectFloorFeature">
+          <div class="row">
+            <div>
+              <span class="title">Ban last override</span>
+              <span class="desc">
+                Prioritise protecting maps over your "ban last" list if your odds
+                on them are better by this amount.
+              </span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoVetoProtectFloorEnabled" />
+              <span class="slider"></span>
+            </label>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="autoVetoProtectFloorEnabled" />
-            <span class="slider"></span>
-          </label>
-        </div>
 
-        <div class="reveal" id="autoVetoProtectFloorReveal">
-          <div class="reveal-inner">
-            <div class="reveal-content">
-              <div class="sub-option" id="autoVetoProtectFloorRow">
-                <div style="flex: 1">
-                  <div class="delay-head">
-                    <span>Ban if win odds below</span>
-                    <span class="delay-val"
-                      ><b id="autoVetoProtectFloorValue">35</b>%</span
-                    >
+          <div class="reveal" id="autoVetoProtectFloorReveal">
+            <div class="reveal-inner">
+              <div class="reveal-content">
+                <div class="sub-option" id="autoVetoProtectFloorRow">
+                  <div style="flex: 1">
+                    <div class="delay-head">
+                      <span>Only if better by</span>
+                      <span class="delay-val"
+                        ><b id="autoVetoProtectFloorValue">10</b> pts</span
+                      >
+                    </div>
+                    <input
+                      type="range"
+                      id="autoVetoProtectFloor"
+                      min="1"
+                      max="40"
+                      step="1"
+                      value="10"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="autoVetoProtectFloor"
-                    min="1"
-                    max="99"
-                    step="1"
-                    value="35"
-                  />
                 </div>
+                <div class="ex" id="protectFloorExample"></div>
               </div>
             </div>
           </div>
