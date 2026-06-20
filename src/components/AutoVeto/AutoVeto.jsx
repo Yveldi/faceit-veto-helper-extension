@@ -74,8 +74,10 @@ export default function AutoVeto({ matchId, data, settings }) {
       mapDynamic: settings.autoVetoMapDynamic,
       mapLast: settings.autoVetoMapLast,
       serverOrder: settings.autoVetoServerOrder,
-      toleranceEnabled: settings.autoVetoToleranceEnabled,
-      tolerance: settings.autoVetoTolerance,
+      worstFirstEnabled: settings.autoVetoWorstFirstEnabled,
+      worstFirstGap: settings.autoVetoWorstFirstGap,
+      protectFloorEnabled: settings.autoVetoProtectFloorEnabled,
+      protectFloor: settings.autoVetoProtectFloor,
     });
     if (!choice) return;
 
@@ -113,8 +115,10 @@ export default function AutoVeto({ matchId, data, settings }) {
     settings.autoVetoMapDynamic,
     settings.autoVetoMapLast,
     settings.autoVetoServerOrder,
-    settings.autoVetoToleranceEnabled,
-    settings.autoVetoTolerance,
+    settings.autoVetoWorstFirstEnabled,
+    settings.autoVetoWorstFirstGap,
+    settings.autoVetoProtectFloorEnabled,
+    settings.autoVetoProtectFloor,
   ]);
 
   const cancel = () => {

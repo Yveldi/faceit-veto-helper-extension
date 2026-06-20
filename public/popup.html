@@ -21,6 +21,10 @@
         font-size: 14px;
         padding: 16px;
       }
+      /* suppress transitions during the initial popup population (no flash) */
+      .no-anim * {
+        transition: none !important;
+      }
       h1 {
         font-size: 15px;
         font-weight: 700;
@@ -66,9 +70,6 @@
         margin: 0 0 12px 14px;
         padding-left: 12px;
         border-left: 2px solid #ff5500;
-      }
-      .sub-option.hidden {
-        display: none;
       }
       .sub-option .title {
         font-size: 13px;
@@ -147,11 +148,13 @@
       .pref-toggle:hover {
         border-color: #ff5500;
       }
+      /* the editor panel animates its height via setReveal too. It deliberately
+         does NOT use the .reveal class: that would match `.reveal.open
+         .reveal-content` for every sub-setting inside and kill their own fade. */
       .pref-editor {
-        margin-top: 10px;
-      }
-      .pref-editor.hidden {
-        display: none;
+        overflow: hidden;
+        max-height: 0;
+        transition: max-height 0.24s ease;
       }
       .pref-help {
         font-size: 12px;
@@ -223,12 +226,54 @@
       .dd-zone-label.label-ban {
         color: #d94949;
       }
+      .dd-zone-label.label-odds {
+        color: #ff5500;
+      }
       .dd-zone-label.label-keep {
         color: #32d35a;
       }
+      /* --- reveal animation: a sub-setting slides out from under its parent ---
+         The height animates (smooth push-down) via JS-measured max-height. The
+         popup window auto-sizes to the document and lags/sticks while chasing a
+         continuously-changing height, so after the animation settles `setReveal`
+         snaps the window to the exact content height (see snapPanel). That final
+         instant correction is what stops it staying stuck after a fast
+         double-click. */
+      .reveal {
+        overflow: hidden;
+        max-height: 0;
+        transition: max-height 0.24s ease;
+      }
+      /* passthrough wrapper; the clip + height live on .reveal now */
+      .reveal-inner {
+        min-height: 0;
+      }
+      /* the revealed block keeps the tabbed-in sub-setting look (indented, with
+         an orange left accent) and fades/slides down into place as the row grows */
+      .reveal-content {
+        margin: 8px 0 12px 14px;
+        padding-left: 12px;
+        border-left: 2px solid #ff5500;
+        transform: translateY(-8px);
+        opacity: 0;
+        transition: transform 0.24s ease, opacity 0.24s ease;
+      }
+      .reveal.open .reveal-content {
+        transform: translateY(0);
+        opacity: 1;
+      }
+      /* the wrapped row/section drops its own outer spacing inside the card */
+      .reveal-content .sub-option {
+        margin: 0;
+        padding-left: 0;
+        border-left: none;
+      }
+      .reveal-content .pref-section {
+        margin: 0;
+      }
     </style>
   </head>
-  <body>
+  <body class="no-anim">
     <h1>Faceit <span class="accent">Veto Helper</span></h1>
 
     <div class="row">
@@ -285,15 +330,21 @@
         </label>
       </div>
 
-      <div class="sub-option hidden" id="regretAlwaysRow">
-        <div>
-          <span class="title">Always show full pool</span>
-          <span class="desc">In every lobby, not just one-map ones</span>
+      <div class="reveal" id="regretAlwaysReveal">
+        <div class="reveal-inner">
+          <div class="reveal-content">
+            <div class="sub-option" id="regretAlwaysRow">
+              <div>
+                <span class="title">Always show full pool</span>
+                <span class="desc">In every lobby, not just one-map ones</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="regretHelperAlways" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="regretHelperAlways" />
-          <span class="slider"></span>
-        </label>
       </div>
     </div>
 
@@ -303,7 +354,7 @@
       <div>
         <span class="title">Auto veto</span>
         <span class="desc">
-          Ban servers &amp; maps for you, but only when you're the captain
+          Ban servers &amp; maps for you when you're the captain
         </span>
       </div>
       <label class="switch">
@@ -317,7 +368,7 @@
         Edit veto preferences ▾
       </button>
 
-      <div class="pref-editor hidden" id="prefEditor">
+      <div class="pref-editor" id="prefEditor">
         <div class="sub" id="autoVetoDelayRow">
           <div class="delay-head">
             <span>Ban delay (each)</span>
@@ -333,37 +384,104 @@
           />
         </div>
 
+        <hr />
+        <p class="pref-help">Drag to set ban order. Top = banned first.</p>
+
+        <div class="pref-section">
+          <span class="pref-label">Maps</span>
+          <div class="dd-zone-label label-ban">
+            Ban first (in order) regardless of win probability
+          </div>
+          <div class="dd-zone" data-zone="first" id="zoneFirst"></div>
+          <div class="dd-zone-label label-odds">
+            By win odds (lowest is banned first)
+          </div>
+          <div class="dd-zone" data-zone="dynamic" id="zoneDynamic"></div>
+          <div class="dd-zone-label label-keep">
+            Keep / ban last (bottom = protected)
+          </div>
+          <div class="dd-zone" data-zone="last" id="zoneLast"></div>
+        </div>
+
         <div class="row">
           <div>
-            <span class="title">Win-rate override</span>
+            <span class="title">Remove worst maps first</span>
             <span class="desc">
-              Ban the lowest-win-odds map if it's enough worse than your pick
+              If a map's win odds are far below the map you'd ban, ban it first
+              (your own ban happens a turn later)
             </span>
           </div>
           <label class="switch">
-            <input type="checkbox" id="autoVetoToleranceEnabled" />
+            <input type="checkbox" id="autoVetoWorstFirstEnabled" />
             <span class="slider"></span>
           </label>
         </div>
 
-        <div class="sub-option hidden" id="autoVetoToleranceRow">
-          <div style="flex: 1">
-            <div class="delay-head">
-              <span>Tolerance</span>
-              <span class="delay-val"
-                ><b id="autoVetoToleranceValue">10</b> pts</span
-              >
+        <div class="reveal" id="autoVetoWorstFirstReveal">
+          <div class="reveal-inner">
+            <div class="reveal-content">
+              <div class="sub-option" id="autoVetoWorstFirstRow">
+                <div style="flex: 1">
+                  <div class="delay-head">
+                    <span>Only if worse by</span>
+                    <span class="delay-val"
+                      ><b id="autoVetoWorstFirstGapValue">10</b> pts</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    id="autoVetoWorstFirstGap"
+                    min="1"
+                    max="40"
+                    step="1"
+                    value="10"
+                  />
+                </div>
+              </div>
             </div>
-            <input
-              type="range"
-              id="autoVetoTolerance"
-              min="1"
-              max="40"
-              step="1"
-              value="10"
-            />
           </div>
         </div>
+
+        <div class="row">
+          <div>
+            <span class="title">Don't protect losing maps</span>
+            <span class="desc">
+              Ban a map from your keep list anyway if its win odds drop below
+              your limit
+            </span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="autoVetoProtectFloorEnabled" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="reveal" id="autoVetoProtectFloorReveal">
+          <div class="reveal-inner">
+            <div class="reveal-content">
+              <div class="sub-option" id="autoVetoProtectFloorRow">
+                <div style="flex: 1">
+                  <div class="delay-head">
+                    <span>Ban if win odds below</span>
+                    <span class="delay-val"
+                      ><b id="autoVetoProtectFloorValue">35</b>%</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    id="autoVetoProtectFloor"
+                    min="1"
+                    max="99"
+                    step="1"
+                    value="35"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr />
 
         <div class="row">
           <div>
@@ -378,25 +496,16 @@
           </label>
         </div>
 
-        <hr />
-        <p class="pref-help">Drag to set ban order. Top = banned first.</p>
-
-        <div class="pref-section">
-          <span class="pref-label">Maps</span>
-          <div class="dd-zone-label label-ban">Ban first (in order)</div>
-          <div class="dd-zone" data-zone="first" id="zoneFirst"></div>
-          <div class="dd-zone-label">By win odds (lowest first)</div>
-          <div class="dd-zone" data-zone="dynamic" id="zoneDynamic"></div>
-          <div class="dd-zone-label label-keep">
-            Keep / ban last (bottom = protected)
+        <div class="reveal" id="serverReveal">
+          <div class="reveal-inner">
+            <div class="reveal-content">
+              <div class="pref-section">
+                <span class="pref-label">Servers</span>
+                <div class="dd-zone-label">Ban first (top) to keep (bottom)</div>
+                <div class="dd-zone" data-zone="server" id="zoneServer"></div>
+              </div>
+            </div>
           </div>
-          <div class="dd-zone" data-zone="last" id="zoneLast"></div>
-        </div>
-
-        <div class="pref-section">
-          <span class="pref-label">Servers</span>
-          <div class="dd-zone-label">Ban first (top) to keep (bottom)</div>
-          <div class="dd-zone" data-zone="server" id="zoneServer"></div>
         </div>
       </div>
     </div>

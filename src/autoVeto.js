@@ -103,12 +103,24 @@ function orderDynamic(dynamicIds, configOrder, winValues) {
   });
 }
 
-// Maps: build the full ban sequence (ban-first list, then dynamic-by-win-odds,
-// then ban-last list with the very bottom most protected) and ban the first
-// still-available map. Win-rate tolerance can override that with the worst map.
+// Maps: build the ban sequence (ban-first list, then dynamic-by-win-odds, then
+// ban-last list with the very bottom most protected) and ban the first available
+// map. Two independent win-odds overrides can adjust that pick:
+//   - "Don't protect losing maps": a ban-last map whose win odds fall below the
+//     floor loses its protection (it becomes a normal win-odds map).
+//   - "Remove worst maps first": if the worst still-bannable (unprotected) map is
+//     below the ordered pick by at least the gap, ban it first instead.
 function chooseMap(options, opts) {
-  const { winValues, mapFirst, mapDynamic, mapLast, toleranceEnabled, tolerance } =
-    opts;
+  const {
+    winValues,
+    mapFirst,
+    mapDynamic,
+    mapLast,
+    worstFirstEnabled,
+    worstFirstGap,
+    protectFloorEnabled,
+    protectFloor,
+  } = opts;
 
   const opt = options
     .map((o) => ({ ...o, id: NAME_TO_ID[o.name.toLowerCase()] }))
@@ -118,10 +130,21 @@ function chooseMap(options, opts) {
   const availableIds = opt.map((o) => o.id);
   const byId = Object.fromEntries(opt.map((o) => [o.id, o]));
   const firstSet = new Set(mapFirst ?? []);
-  const lastSet = new Set(mapLast ?? []);
 
-  const first = (mapFirst ?? []).filter((id) => availableIds.includes(id));
-  const last = (mapLast ?? []).filter((id) => availableIds.includes(id));
+  // Override #2: drop protection from any ban-last map below the win-odds floor,
+  // so it falls back into the dynamic (win-odds) group below.
+  const lastSet = new Set((mapLast ?? []).filter((id) => availableIds.includes(id)));
+  if (protectFloorEnabled) {
+    for (const id of [...lastSet]) {
+      const wv = winValues[id];
+      if (typeof wv === "number" && wv < protectFloor) lastSet.delete(id);
+    }
+  }
+
+  const first = (mapFirst ?? []).filter(
+    (id) => availableIds.includes(id) && !lastSet.has(id),
+  );
+  const last = (mapLast ?? []).filter((id) => lastSet.has(id));
   const dynamicIds = availableIds.filter(
     (id) => !firstSet.has(id) && !lastSet.has(id),
   );
@@ -135,15 +158,20 @@ function chooseMap(options, opts) {
 
   let candidate = sequence.find((id) => availableIds.includes(id)) ?? availableIds[0];
 
-  if (toleranceEnabled) {
-    const known = availableIds.filter((id) => typeof winValues[id] === "number");
-    if (known.length) {
-      const worst = known.reduce((m, id) =>
+  // Override #1: defer the ordered pick if a still-bannable (not protected) map
+  // is worse than it by at least the gap. Protected maps are off-limits here —
+  // banning one is override #2's job (via the floor above).
+  if (worstFirstEnabled) {
+    const bannable = availableIds.filter(
+      (id) => !lastSet.has(id) && typeof winValues[id] === "number",
+    );
+    if (bannable.length) {
+      const worst = bannable.reduce((m, id) =>
         winValues[id] < winValues[m] ? id : m,
       );
       if (
         typeof winValues[candidate] === "number" &&
-        winValues[candidate] - winValues[worst] >= tolerance
+        winValues[candidate] - winValues[worst] >= worstFirstGap
       ) {
         candidate = worst;
       }

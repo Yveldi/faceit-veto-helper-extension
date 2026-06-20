@@ -11,8 +11,10 @@ const DEFAULTS = {
   autoVetoEnabled: false,
   autoVetoDelay: 5,
   autoVetoServers: false,
-  autoVetoToleranceEnabled: false,
-  autoVetoTolerance: 10,
+  autoVetoWorstFirstEnabled: false,
+  autoVetoWorstFirstGap: 10,
+  autoVetoProtectFloorEnabled: false,
+  autoVetoProtectFloor: 35,
   autoVetoMapFirst: [],
   autoVetoMapDynamic: [],
   autoVetoMapLast: [],
@@ -27,18 +29,33 @@ const els = {
   vetoHelperEnabled: document.getElementById("vetoHelperEnabled"),
   regretHelperEnabled: document.getElementById("regretHelperEnabled"),
   regretHelperAlways: document.getElementById("regretHelperAlways"),
-  regretAlwaysRow: document.getElementById("regretAlwaysRow"),
+  regretAlwaysReveal: document.getElementById("regretAlwaysReveal"),
   autoVetoEnabled: document.getElementById("autoVetoEnabled"),
   autoVetoGroup: document.getElementById("autoVetoGroup"),
   autoVetoDelay: document.getElementById("autoVetoDelay"),
   autoVetoDelayValue: document.getElementById("autoVetoDelayValue"),
   autoVetoServers: document.getElementById("autoVetoServers"),
-  autoVetoToleranceEnabled: document.getElementById("autoVetoToleranceEnabled"),
-  autoVetoToleranceRow: document.getElementById("autoVetoToleranceRow"),
-  autoVetoTolerance: document.getElementById("autoVetoTolerance"),
-  autoVetoToleranceValue: document.getElementById("autoVetoToleranceValue"),
+  autoVetoWorstFirstEnabled: document.getElementById(
+    "autoVetoWorstFirstEnabled",
+  ),
+  autoVetoWorstFirstReveal: document.getElementById("autoVetoWorstFirstReveal"),
+  autoVetoWorstFirstGap: document.getElementById("autoVetoWorstFirstGap"),
+  autoVetoWorstFirstGapValue: document.getElementById(
+    "autoVetoWorstFirstGapValue",
+  ),
+  autoVetoProtectFloorEnabled: document.getElementById(
+    "autoVetoProtectFloorEnabled",
+  ),
+  autoVetoProtectFloorReveal: document.getElementById(
+    "autoVetoProtectFloorReveal",
+  ),
+  autoVetoProtectFloor: document.getElementById("autoVetoProtectFloor"),
+  autoVetoProtectFloorValue: document.getElementById(
+    "autoVetoProtectFloorValue",
+  ),
   prefToggle: document.getElementById("prefToggle"),
   prefEditor: document.getElementById("prefEditor"),
+  serverReveal: document.getElementById("serverReveal"),
   zoneFirst: document.getElementById("zoneFirst"),
   zoneDynamic: document.getElementById("zoneDynamic"),
   zoneLast: document.getElementById("zoneLast"),
@@ -49,6 +66,54 @@ function save(partial) {
   api.storage.local.set(partial);
 }
 
+// Force the auto-sizing popup window to re-measure to the exact document height.
+// Setting an explicit html height (then clearing it next frame) hits the instant
+// resize path that always lands correctly, so the window can't stay stuck at a
+// size it reached while chasing the animation (e.g. after a fast double-click).
+function snapPanel() {
+  const html = document.documentElement;
+  html.style.height = `${document.body.scrollHeight}px`;
+  void html.offsetHeight; // commit
+  requestAnimationFrame(() => {
+    html.style.height = "";
+  });
+}
+
+// Open/close a reveal with a smooth height animation (real measured max-height,
+// so siblings glide down). The popup window lags while chasing that height, so
+// once the animation settles we lock the element to a clean resting height and
+// snapPanel() the window to the exact size. The settle timer is reset on every
+// toggle, so only the final state triggers the snap.
+const REVEAL_MS = 240; // keep in sync with the .reveal transition
+function setReveal(reveal, open) {
+  clearTimeout(reveal._fvhTimer);
+  reveal.classList.toggle("open", open); // drives the opacity/slide
+  document.documentElement.style.height = ""; // clear any prior snap pin
+
+  // Initial population: jump straight to the resting state, no animation.
+  if (document.body.classList.contains("no-anim")) {
+    reveal.style.maxHeight = open ? "none" : "0px";
+    return;
+  }
+
+  if (open) {
+    // animate from the current height up to the measured content height
+    reveal.style.maxHeight = `${reveal.scrollHeight}px`;
+  } else {
+    // pin the current rendered height, then collapse to 0 so it animates down
+    reveal.style.maxHeight = `${reveal.offsetHeight}px`;
+    void reveal.offsetHeight; // reflow so the next change transitions
+    reveal.style.maxHeight = "0px";
+  }
+
+  // After the animation, settle to a clean resting height and snap the window so
+  // it can never be left at an interrupted (wrong) size.
+  reveal._fvhTimer = setTimeout(() => {
+    reveal.style.maxHeight = reveal.classList.contains("open") ? "none" : "0px";
+    snapPanel();
+  }, REVEAL_MS + 40);
+}
+
 function reflectDelayEnabled() {
   const on = els.autoAcceptEnabled.checked;
   els.delayRow.classList.toggle("disabled", !on);
@@ -56,12 +121,13 @@ function reflectDelayEnabled() {
 }
 
 // "Always show full pool" is a sub-option of the Regret Helper: it's only shown
-// (and only meaningful) while the Regret Helper is on.
+// (and only meaningful) while the Regret Helper is on. Toggling `.open` plays
+// the reveal animation (suppressed on first load by body.no-anim).
 function reflectRegretLink() {
-  els.regretAlwaysRow.classList.toggle("hidden", !els.regretHelperEnabled.checked);
+  setReveal(els.regretAlwaysReveal, els.regretHelperEnabled.checked);
 }
 
-api.storage.local.get(DEFAULTS, (s) => {
+function applyBasicSettings(s) {
   els.autoAcceptEnabled.checked = s.autoAcceptEnabled;
   els.autoAcceptDelay.value = s.autoAcceptDelay;
   els.delayValue.textContent = s.autoAcceptDelay;
@@ -74,7 +140,7 @@ api.storage.local.get(DEFAULTS, (s) => {
   if (always !== s.regretHelperAlways) save({ regretHelperAlways: always });
   reflectDelayEnabled();
   reflectRegretLink();
-});
+}
 
 els.autoAcceptEnabled.addEventListener("change", () => {
   save({ autoAcceptEnabled: els.autoAcceptEnabled.checked });
@@ -123,11 +189,22 @@ function reflectAutoVetoEnabled() {
   els.autoVetoGroup.classList.toggle("disabled", !els.autoVetoEnabled.checked);
 }
 
-function reflectTolerance() {
-  els.autoVetoToleranceRow.classList.toggle(
-    "hidden",
-    !els.autoVetoToleranceEnabled.checked,
+// Each map override's threshold slider is only shown while its toggle is on, and
+// the server list only while server banning is on. All use the reveal animation.
+function reflectWorstFirst() {
+  setReveal(
+    els.autoVetoWorstFirstReveal,
+    els.autoVetoWorstFirstEnabled.checked,
   );
+}
+function reflectProtectFloor() {
+  setReveal(
+    els.autoVetoProtectFloorReveal,
+    els.autoVetoProtectFloorEnabled.checked,
+  );
+}
+function reflectServerList() {
+  setReveal(els.serverReveal, els.autoVetoServers.checked);
 }
 
 els.autoVetoEnabled.addEventListener("change", () => {
@@ -144,25 +221,38 @@ els.autoVetoDelay.addEventListener("change", () => {
 
 els.autoVetoServers.addEventListener("change", () => {
   save({ autoVetoServers: els.autoVetoServers.checked });
+  reflectServerList();
 });
 
-els.autoVetoToleranceEnabled.addEventListener("change", () => {
-  save({ autoVetoToleranceEnabled: els.autoVetoToleranceEnabled.checked });
-  reflectTolerance();
+els.autoVetoWorstFirstEnabled.addEventListener("change", () => {
+  save({ autoVetoWorstFirstEnabled: els.autoVetoWorstFirstEnabled.checked });
+  reflectWorstFirst();
+});
+els.autoVetoWorstFirstGap.addEventListener("input", () => {
+  els.autoVetoWorstFirstGapValue.textContent = els.autoVetoWorstFirstGap.value;
+});
+els.autoVetoWorstFirstGap.addEventListener("change", () => {
+  save({ autoVetoWorstFirstGap: Number(els.autoVetoWorstFirstGap.value) });
 });
 
-els.autoVetoTolerance.addEventListener("input", () => {
-  els.autoVetoToleranceValue.textContent = els.autoVetoTolerance.value;
+els.autoVetoProtectFloorEnabled.addEventListener("change", () => {
+  save({ autoVetoProtectFloorEnabled: els.autoVetoProtectFloorEnabled.checked });
+  reflectProtectFloor();
 });
-els.autoVetoTolerance.addEventListener("change", () => {
-  save({ autoVetoTolerance: Number(els.autoVetoTolerance.value) });
+els.autoVetoProtectFloor.addEventListener("input", () => {
+  els.autoVetoProtectFloorValue.textContent = els.autoVetoProtectFloor.value;
+});
+els.autoVetoProtectFloor.addEventListener("change", () => {
+  save({ autoVetoProtectFloor: Number(els.autoVetoProtectFloor.value) });
 });
 
+let prefOpen = false;
 els.prefToggle.addEventListener("click", () => {
-  const hidden = els.prefEditor.classList.toggle("hidden");
-  els.prefToggle.textContent = hidden
-    ? "Edit veto preferences ▾"
-    : "Hide veto preferences ▴";
+  prefOpen = !prefOpen;
+  setReveal(els.prefEditor, prefOpen); // animate the panel open/closed + snap
+  els.prefToggle.textContent = prefOpen
+    ? "Hide veto preferences ▴"
+    : "Edit veto preferences ▾";
 });
 
 // --- preference drag-and-drop editor ----------------------------------------
@@ -316,17 +406,33 @@ function initEditor(stored, pools) {
   saveServers();
 }
 
-loadPools().then((pools) => {
-  api.storage.local.get(DEFAULTS, (s) => {
-    els.autoVetoEnabled.checked = s.autoVetoEnabled;
-    els.autoVetoDelay.value = s.autoVetoDelay;
-    els.autoVetoDelayValue.textContent = s.autoVetoDelay;
-    els.autoVetoServers.checked = s.autoVetoServers;
-    els.autoVetoToleranceEnabled.checked = s.autoVetoToleranceEnabled;
-    els.autoVetoTolerance.value = s.autoVetoTolerance;
-    els.autoVetoToleranceValue.textContent = s.autoVetoTolerance;
-    reflectAutoVetoEnabled();
-    reflectTolerance();
-    initEditor(s, pools);
-  });
+function getSettings() {
+  return new Promise((resolve) => api.storage.local.get(DEFAULTS, resolve));
+}
+
+// One combined init pass: set every control (and every reveal) to its stored
+// state, THEN drop body.no-anim so the initial population never animates while
+// later user toggles do. The double rAF guarantees the no-anim state has been
+// painted before transitions are re-enabled.
+Promise.all([loadPools(), getSettings()]).then(([pools, s]) => {
+  applyBasicSettings(s);
+  els.autoVetoEnabled.checked = s.autoVetoEnabled;
+  els.autoVetoDelay.value = s.autoVetoDelay;
+  els.autoVetoDelayValue.textContent = s.autoVetoDelay;
+  els.autoVetoServers.checked = s.autoVetoServers;
+  els.autoVetoWorstFirstEnabled.checked = s.autoVetoWorstFirstEnabled;
+  els.autoVetoWorstFirstGap.value = s.autoVetoWorstFirstGap;
+  els.autoVetoWorstFirstGapValue.textContent = s.autoVetoWorstFirstGap;
+  els.autoVetoProtectFloorEnabled.checked = s.autoVetoProtectFloorEnabled;
+  els.autoVetoProtectFloor.value = s.autoVetoProtectFloor;
+  els.autoVetoProtectFloorValue.textContent = s.autoVetoProtectFloor;
+  reflectAutoVetoEnabled();
+  reflectWorstFirst();
+  reflectProtectFloor();
+  reflectServerList();
+  initEditor(s, pools);
+  setReveal(els.prefEditor, false); // editor starts collapsed (no animation)
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => document.body.classList.remove("no-anim")),
+  );
 });

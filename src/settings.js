@@ -22,10 +22,15 @@ export const SETTINGS_DEFAULTS = {
   // Also auto-ban during the server phase. Off by default so server bans are
   // opt-in (maps only otherwise), avoiding accidental server bans.
   autoVetoServers: false,
-  // Win-rate override: ban the lowest-win-odds map instead of the preference
-  // pick when the gap is at least `autoVetoTolerance` percentage points.
-  autoVetoToleranceEnabled: false,
-  autoVetoTolerance: 10,
+  // Override #1 ("Remove worst maps first"): defer the preference pick when an
+  // unprotected map's win odds are below it by at least `autoVetoWorstFirstGap`
+  // percentage points (ban that worse map first; your pick happens next turn).
+  autoVetoWorstFirstEnabled: false,
+  autoVetoWorstFirstGap: 10,
+  // Override #2 ("Don't protect losing maps"): a map in the keep/ban-last group
+  // loses its protection when its win odds fall below `autoVetoProtectFloor` %.
+  autoVetoProtectFloorEnabled: false,
+  autoVetoProtectFloor: 35,
   // Map preference, three ordered groups (a map is in exactly one). Empty = use
   // the default pool, banned by win odds. Set via the popup's drag editor.
   autoVetoMapFirst: [], // ban these first, in order
