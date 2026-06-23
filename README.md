@@ -4,10 +4,17 @@
 Standalone extension that helps you win matches through smarter map picks.
 </p>
 <p align="center">
-<img width="249" height="200" alt="image" src="https://github.com/user-attachments/assets/23e3bc1d-4677-493a-b593-00ebf9906086" />
+<img width="400" height="500" alt="image" src="https://github.com/user-attachments/assets/a729e1a5-1fc3-4ae5-b74f-cc0a26a11887" />
 </p>
 
 <p align="center"><em>Unofficial. Not affiliated with, endorsed by, or sponsored by FACEIT.</em></p>
+
+Install it now:
+
+[Google Chrome](https://chromewebstore.google.com/detail/ngjmfjmnaopgjonnppfgogjdlijmgima)
+
+[Mozilla Firefox](https://addons.mozilla.org/en-GB/firefox/addon/faceit-veto-helper/)
+
 
 ## Features
 
@@ -28,3 +35,4 @@ All FACEIT data is read using your existing session and stays in your browser. N
 ## Build from source
 
 `npm install`, then `npm run build` (output in `dist/`). Load `dist/` as an unpacked extension (Chrome: `chrome://extensions`; Firefox: `about:debugging`), then hard-refresh faceit.com.
+
