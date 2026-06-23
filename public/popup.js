@@ -6,6 +6,7 @@ const DEFAULTS = {
   autoAcceptEnabled: true,
   autoAcceptDelay: 10,
   vetoHelperEnabled: true,
+  vetoHelperLocked: false,
   regretHelperEnabled: false,
   regretHelperAlways: false,
   autoVetoEnabled: false,
@@ -27,6 +28,8 @@ const els = {
   delayValue: document.getElementById("delayValue"),
   delayRow: document.getElementById("delayRow"),
   vetoHelperEnabled: document.getElementById("vetoHelperEnabled"),
+  vetoHelperLocked: document.getElementById("vetoHelperLocked"),
+  vetoLockReveal: document.getElementById("vetoLockReveal"),
   regretHelperEnabled: document.getElementById("regretHelperEnabled"),
   regretHelperAlways: document.getElementById("regretHelperAlways"),
   regretAlwaysReveal: document.getElementById("regretAlwaysReveal"),
@@ -139,11 +142,17 @@ function reflectRegretLink() {
   setReveal(els.regretAlwaysReveal, els.regretHelperEnabled.checked);
 }
 
+// "Lock the veto helper" only matters while the Veto helper is on.
+function reflectVetoLock() {
+  setReveal(els.vetoLockReveal, els.vetoHelperEnabled.checked);
+}
+
 function applyBasicSettings(s) {
   els.autoAcceptEnabled.checked = s.autoAcceptEnabled;
   els.autoAcceptDelay.value = s.autoAcceptDelay;
   els.delayValue.textContent = s.autoAcceptDelay;
   els.vetoHelperEnabled.checked = s.vetoHelperEnabled;
+  els.vetoHelperLocked.checked = s.vetoHelperLocked;
   els.regretHelperEnabled.checked = s.regretHelperEnabled;
   // Invariant: "always" only applies when the Regret Helper is on. Normalise
   // any stale state and persist the fix.
@@ -152,6 +161,7 @@ function applyBasicSettings(s) {
   if (always !== s.regretHelperAlways) save({ regretHelperAlways: always });
   reflectDelayEnabled();
   reflectRegretLink();
+  reflectVetoLock();
 }
 
 els.autoAcceptEnabled.addEventListener("change", () => {
@@ -168,7 +178,22 @@ els.autoAcceptDelay.addEventListener("change", () => {
 });
 
 els.vetoHelperEnabled.addEventListener("change", () => {
-  save({ vetoHelperEnabled: els.vetoHelperEnabled.checked });
+  const on = els.vetoHelperEnabled.checked;
+  const update = { vetoHelperEnabled: on };
+  // Turning the Veto helper off resets the window: clear the lock and the saved
+  // position, so a lost or locked-off-screen window is recoverable by toggling
+  // it off and on (it comes back unlocked at the default spot).
+  if (!on) {
+    update.vetoHelperLocked = false;
+    update.vetoHelperPosition = null;
+    els.vetoHelperLocked.checked = false;
+  }
+  save(update);
+  reflectVetoLock();
+});
+
+els.vetoHelperLocked.addEventListener("change", () => {
+  save({ vetoHelperLocked: els.vetoHelperLocked.checked });
 });
 
 els.regretHelperEnabled.addEventListener("change", () => {

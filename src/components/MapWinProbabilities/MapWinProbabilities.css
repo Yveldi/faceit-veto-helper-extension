@@ -1,31 +1,287 @@
-.fvh-root .mapWinProbs {
+.fvh-root .fvh-mwp {
+    width: 286px;
+    flex: none;
+}
+
+.fvh-root .fvh-mwp-title,
+.fvh-root .fvh-mwp-loadhead {
     display: flex;
-    flex-direction: column;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #9aa0ab;
+}
+
+.fvh-root .fvh-mwp-loadhead {
     align-items: center;
+    gap: 8px;
 }
 
-.fvh-root .mapWinProbs-title {
-    color: #e7e8ec;
-    text-align: center;
+.fvh-root .fvh-mwp-team {
+    font-size: 11.5px;
+    font-weight: 800;
+    color: #ff7a33;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The list is a fixed-height relative box; cards are absolutely positioned by
+   rank so they slide to their new spot when the order changes. */
+.fvh-root .fvh-mwp-list {
+    position: relative;
+    /* Tweens when the pool size changes (Veto Regret Helper toggle). Matched to
+       the card slide below (same duration + easing) so the window resize and the
+       cards re-sorting stay in lockstep — otherwise the window collapses faster
+       than the cards move and they appear to lag/fall out. */
+    transition: height 0.55s cubic-bezier(0.45, 0, 0.2, 1);
+}
+
+.fvh-root .fvh-mwp-slot {
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* re-sort slide; matched to the list height tween so they stay in lockstep */
+    transition: top 0.55s cubic-bezier(0.45, 0, 0.2, 1);
+}
+
+/* fade-in applied ONLY to genuinely added cards (not on stage switch / mount) */
+.fvh-root .fvh-mwp-slot.fvh-mwp-enter {
+    animation: fvhfadein 0.25s ease;
+}
+
+/* fade-out for removed cards; `forwards` holds opacity 0 until they unmount */
+.fvh-root .fvh-mwp-slot.fvh-mwp-exit {
+    animation: fvhfadeout 0.28s ease forwards;
+}
+
+.fvh-root .fvh-mwp-anchor {
+    display: block;
+}
+
+.fvh-root .fvh-mwp-card {
+    position: relative;
+    height: 56px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0d0e11 center / cover no-repeat;
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: box-shadow 0.15s ease;
+}
+
+.fvh-root .fvh-mwp-card:hover,
+.fvh-root .fvh-mwp-card.active {
+    box-shadow: inset 0 0 0 1.5px rgba(255, 122, 51, 0.85);
+}
+
+.fvh-root .fvh-mwp-shade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        180deg,
+        rgba(8, 9, 11, 0.05) 0%,
+        rgba(8, 9, 11, 0.34) 54%,
+        rgba(8, 9, 11, 0.82) 100%
+    );
+}
+
+.fvh-root .fvh-mwp-tint {
+    position: absolute;
+    inset: 0;
+    transition: opacity 0.6s ease;
+}
+
+/* shown instead of a win color when there is nothing to ban (single-map pool) */
+.fvh-root .fvh-mwp-vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 38px 10px rgba(0, 0, 0, 0.66);
+    transition: opacity 0.45s ease;
+}
+
+.fvh-root .fvh-mwp-code {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.fvh-root .fvh-mwp-name {
+    position: absolute;
+    left: 9px;
+    bottom: 10px;
     font-size: 14px;
-    margin-bottom: 10px;
-    padding: 5px 10px;
-    background-color: rgba(13, 14, 19, 0.85);
-    border-radius: 6px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 1px 5px rgba(0, 0, 0, 0.95);
 }
 
-.fvh-root .mapWinProbs-title .mainTeamName {
-    color: #ff5500;
+.fvh-root .fvh-mwp-tag {
+    position: absolute;
+    top: 6px;
+    right: 9px;
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+.fvh-root .fvh-mwp-tag.ban {
+    color: #ff8585;
+    background: rgba(229, 72, 72, 0.28);
+}
+
+.fvh-root .fvh-mwp-tag.pick {
+    color: #6fe09a;
+    background: rgba(56, 196, 104, 0.28);
+}
+
+.fvh-root .fvh-mwp-pct {
+    position: absolute;
+    right: 11px;
+    bottom: 8px;
+    font-size: 21px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.95);
+}
+
+/* placeholder chip where the % will go, during the 'maps' phase */
+.fvh-root .fvh-mwp-pending {
+    position: absolute;
+    right: 11px;
+    bottom: 11px;
+    width: 44px;
+    height: 20px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.09);
+    overflow: hidden;
+}
+
+.fvh-root .fvh-mwp-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.fvh-root .fvh-mwp-bar > span {
+    display: block;
+    height: 100%;
+    transition: width 0.6s ease, background 0.6s ease;
+}
+
+/* ---- init skeleton ---- */
+.fvh-root .fvh-mwp-skel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 56px;
+    border-radius: 8px;
+    background: #0f1116;
+    border: 1px solid #1f222a;
+    overflow: hidden;
+}
+
+.fvh-root .fvh-cz {
+    animation: fvhrowpulse 2.1s ease-in-out infinite;
+}
+.fvh-root .fvh-cz:nth-child(2) { animation-delay: 0.18s; }
+.fvh-root .fvh-cz:nth-child(3) { animation-delay: 0.36s; }
+.fvh-root .fvh-cz:nth-child(4) { animation-delay: 0.54s; }
+.fvh-root .fvh-cz:nth-child(5) { animation-delay: 0.72s; }
+
+.fvh-root .fvh-mwp-skel-code {
+    position: absolute;
+    top: 8px;
+    left: 9px;
+    width: 22px;
+    height: 9px;
+    border-radius: 3px;
+    background: #21242c;
+}
+
+.fvh-root .fvh-mwp-skel-name {
+    position: absolute;
+    left: 9px;
+    bottom: 11px;
+    width: 64px;
+    height: 12px;
+    border-radius: 4px;
+    background: #262932;
+}
+
+.fvh-root .fvh-mwp-skel-pct {
+    position: absolute;
+    right: 11px;
+    bottom: 11px;
+    width: 44px;
+    height: 20px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+.fvh-root .fvh-mwp-skel-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.fvh-root .fvh-mwp-loadnote {
+    font-size: 9.5px;
+    color: #73777f;
+    margin-top: 11px;
+}
+
+/* ---- legend + status ---- */
+.fvh-root .fvh-mwp-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 11px;
+    font-size: 9.5px;
+    color: #73777f;
+}
+
+.fvh-root .fvh-mwp-legend > span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.fvh-root .fvh-mwp-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+}
+
+.fvh-root .fvh-mwp-dot.low { background: #e54848; }
+.fvh-root .fvh-mwp-dot.high { background: #38c468; }
+
+.fvh-root .fvh-mwp-status {
+    margin-left: auto;
+    color: #ff9b63;
     font-weight: 700;
 }
 
-.fvh-root .mapWinProbs-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.fvh-root .mapWinProbs-item {
-    position: relative;
-    display: flex;
+.fvh-root .fvh-mwp-status .fvh-spinner {
+    width: 10px;
+    height: 10px;
 }

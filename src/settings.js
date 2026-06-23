@@ -14,6 +14,11 @@ export const SETTINGS_DEFAULTS = {
   // Always show the full default pool, regardless of how many maps are bannable
   // (overrides regretHelperEnabled). Off by default.
   regretHelperAlways: false,
+  // Lock the Lobby Veto Helper window so it can't be dragged. Persisted and
+  // reactive so the in-page lock icon and the control-panel toggle stay in sync.
+  // The window position is persisted separately (key `vetoHelperPosition`), not
+  // here, so it doesn't churn this reactive settings object on every drag.
+  vetoHelperLocked: false,
 
   // Auto server & map veto (see AUTOVETO_SPEC.md). Off by default: it acts in
   // real ranked matches, and only when you are the captain.
@@ -71,6 +76,27 @@ export function loadSelfMapStats() {
   return new Promise((resolve) => {
     if (!storage) return resolve(null);
     storage.get({ selfMapStats: null }, (items) => resolve(items.selfMapStats));
+  });
+}
+
+// Write a partial settings update (e.g. the in-page lock icon toggling
+// `vetoHelperLocked`). Reactive readers (useSettings) pick it up via onChanged.
+export function updateSettings(partial) {
+  if (storage) storage.set(partial);
+}
+
+// The Lobby Veto Helper window position. Stored apart from settings (it's data,
+// and changes on every drag) so it never re-renders settings consumers.
+export function saveVetoHelperPosition(position) {
+  if (storage) storage.set({ vetoHelperPosition: position });
+}
+
+export function loadVetoHelperPosition() {
+  return new Promise((resolve) => {
+    if (!storage) return resolve(null);
+    storage.get({ vetoHelperPosition: null }, (items) =>
+      resolve(items.vetoHelperPosition),
+    );
   });
 }
 

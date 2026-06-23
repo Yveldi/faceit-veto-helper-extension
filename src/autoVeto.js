@@ -34,7 +34,10 @@ export function computeWinValues(data, selfStats) {
     }
   }
 
-  if (data?.teams) {
+  // Only trust live match probabilities once every player is loaded; mid-stream
+  // the per-map scores are partial and would mislead the ban choice. Until then
+  // the cached self win rates above stand in.
+  if (data?.teams && data.ready) {
     const summaries = data.teams.map((t) => ({
       ...t,
       ...computeTeamScores(t.roster, data.mapPool),

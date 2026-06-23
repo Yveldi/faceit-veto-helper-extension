@@ -1,33 +1,24 @@
-import WindowButton from "./WindowButton";
-import LoadingDot from "../LoadingDot/LoadingDot";
 import MatchOverview from "../MatchOverview/MatchOverview";
-import useHoverIntent from "../../hooks/useHoverIntent";
 
-// Expanded stage: full per-player breakdown plus the win probabilities. Map
-// hover is disabled here (that info is shown directly); instead hovering a
-// player's per-map rating reveals the factors behind it.
-export default function StageThree({ isDragging, data, summaries, onMinimize }) {
-  const hover = useHoverIntent(isDragging);
-  const { mapPool, mapThumbnails, mainTeamIndex, loading } = data;
-
+// Expanded stage body: win-probability cards next to a per-player map matrix.
+// Both stream in during loading (cards settle, matrix fills row by row).
+export default function StageThree({
+  data,
+  summaries,
+  winSummaries,
+  phase,
+  cardPhase,
+}) {
+  const { mapPool, mapThumbnails, mainTeamIndex } = data;
   return (
-    <div className="fvh-stage">
-      <div className="fvh-window-header">
-        <WindowButton onClick={onMinimize} title="Minimize">
-          ▾
-        </WindowButton>
-      </div>
-      {loading || !summaries ? (
-        <LoadingDot />
-      ) : (
-        <MatchOverview
-          summaries={summaries}
-          mapPool={mapPool}
-          mapThumbnails={mapThumbnails}
-          mainTeamIndex={mainTeamIndex}
-          hover={hover}
-        />
-      )}
-    </div>
+    <MatchOverview
+      summaries={summaries}
+      winSummaries={winSummaries}
+      mapPool={mapPool}
+      mapThumbnails={mapThumbnails}
+      mainTeamIndex={mainTeamIndex}
+      phase={phase}
+      cardPhase={cardPhase}
+    />
   );
 }

@@ -29,12 +29,14 @@ export default function App() {
   // auto-veto's win-value fallback (see AUTOVETO_SPEC.md). Runs regardless of
   // which feature triggered the load.
   useEffect(() => {
-    if (!data.teams || !selfUserId) return;
+    // Only cache once fully loaded — mid-stream the self player's stats may be
+    // empty or partial.
+    if (!data.ready || !data.teams || !selfUserId) return;
     const self = data.teams
       .flatMap((team) => team.roster)
       .find((p) => p.profile.id === selfUserId);
     if (self) saveSelfMapStats(self.stats);
-  }, [data.teams, selfUserId]);
+  }, [data.ready, data.teams, selfUserId]);
 
   return (
     <>
@@ -44,7 +46,13 @@ export default function App() {
         delay={settings.autoAcceptDelay}
       />
       {/* Win probabilities & player stats overlay in matchrooms */}
-      {settings.vetoHelperEnabled && <VetoHelper matchId={matchId} data={data} />}
+      {settings.vetoHelperEnabled && (
+        <VetoHelper
+          matchId={matchId}
+          data={data}
+          locked={settings.vetoHelperLocked}
+        />
+      )}
       {/* Auto-bans servers & maps when you're captain */}
       {settings.autoVetoEnabled && (
         <AutoVeto matchId={matchId} data={data} settings={settings} />

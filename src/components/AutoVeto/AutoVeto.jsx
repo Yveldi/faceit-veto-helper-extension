@@ -47,7 +47,7 @@ export default function AutoVeto({ matchId, data, settings }) {
   // not on every App re-render (data is a fresh object each render).
   const winValues = useMemo(
     () => computeWinValues(data, selfStats),
-    [data.teams, data.mapPool, data.mainTeamIndex, selfStats],
+    [data.teams, data.mapPool, data.mainTeamIndex, data.ready, selfStats],
   );
 
   // A signature that changes when the turn meaningfully changes (phase or the

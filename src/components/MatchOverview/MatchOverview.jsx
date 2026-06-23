@@ -1,39 +1,46 @@
+import { useState } from "react";
 import "./MatchOverview.css";
-import TeamColumn from "./TeamColumn";
+import PlayerMatrix from "./PlayerMatrix";
 import MapWinProbabilities from "../MapWinProbabilities/MapWinProbabilities";
 
-// Stage 3 full layout: [team 1] [win probabilities] [team 2]. Purely
-// presentational — all data (enriched + summarised) is computed upstream and
-// passed in, so there's a single source of truth and no load happens here.
+// Stage 3 layout: win-probability cards on the left, a per-player map matrix on
+// the right. A single hovered-map (`hoverCol`) state is shared between them, so
+// hovering a win-prob card highlights that map's column in the matrix and vice
+// versa. Both sides stream in during the loading phases.
 export default function MatchOverview({
   summaries,
+  winSummaries,
   mapPool,
   mapThumbnails,
   mainTeamIndex,
-  hover,
+  phase,
+  cardPhase,
 }) {
+  const [hoverCol, setHoverCol] = useState(null);
   const otherIndex = mainTeamIndex === 0 ? 1 : 0;
+
   return (
     <div className="matchOverview">
-      <TeamColumn
-        team={summaries[0]}
-        side="left"
-        mapPool={mapPool}
-        hover={hover}
-      />
-      <div className="matchOverview-middle">
+      <div className="matchOverview-left">
         <MapWinProbabilities
-          mainTeam={summaries[mainTeamIndex]}
-          otherTeam={summaries[otherIndex]}
+          mainTeam={winSummaries?.[mainTeamIndex]}
+          otherTeam={winSummaries?.[otherIndex]}
           mapPool={mapPool}
           mapThumbnails={mapThumbnails}
+          phase={cardPhase}
+          onMapEnter={setHoverCol}
+          onMapLeave={() => setHoverCol(null)}
+          activeMap={hoverCol}
         />
       </div>
-      <TeamColumn
-        team={summaries[1]}
-        side="right"
+      <PlayerMatrix
+        teams={summaries}
         mapPool={mapPool}
-        hover={hover}
+        mapThumbnails={mapThumbnails}
+        phase={phase}
+        hoverCol={hoverCol}
+        onColEnter={setHoverCol}
+        onColLeave={() => setHoverCol(null)}
       />
     </div>
   );

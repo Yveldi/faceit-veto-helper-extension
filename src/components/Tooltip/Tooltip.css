@@ -10,61 +10,110 @@
     pointer-events: none;
 }
 
-/* Stage 2: a team's players + their rating on the hovered map. */
-.fvh-root .mapPlayerRatings {
+/* Stage 2 breakdown popover: both teams' players + their score on the hovered
+   map, value chips tinted weak->strong. */
+.fvh-root .mapBreakdown {
+    min-width: 188px;
+}
+
+.fvh-root .mapBreakdown-head .label {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: #6b7280;
+}
+
+.fvh-root .mapBreakdown-head .row {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 0 9px;
 }
 
-.fvh-root .mapPlayerRatings .team-head {
-    font-weight: 700;
-    font-size: 12px;
-    color: #e7e8ec;
-    margin-bottom: 2px;
-}
-
-.fvh-root .mapPlayerRatings .team-head.main {
-    color: #ff5500;
-}
-
-.fvh-root .mapPlayerRatings .row {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
+.fvh-root .mapBreakdown-head .map {
     font-size: 13px;
+    font-weight: 800;
+    color: #f1f2f4;
+    text-transform: capitalize;
 }
 
-.fvh-root .mapPlayerRatings .name {
-    font-weight: 700;
-    color: #e7e8ec;
+.fvh-root .mapBreakdown-head .pct {
+    font-size: 11px;
+    font-weight: 800;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
 }
 
-.fvh-root .mapPlayerRatings .value {
-    font-size: 12px;
-    color: #bebebe;
+.fvh-root .mapBreakdown-team {
+    margin-bottom: 8px;
 }
 
-/* Stage 3: factors behind one player's rating on the hovered map. */
-.fvh-root .playerMapFactors {
+.fvh-root .mapBreakdown-team .name {
+    font-size: 11px;
+    font-weight: 800;
+    color: #d6d8dd;
+    margin-bottom: 5px;
+}
+
+.fvh-root .mapBreakdown-team .name.main {
+    color: #ff7a33;
+}
+
+.fvh-root .mapBreakdown .prow {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    font-size: 12px;
-    color: #bebebe;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 4px;
+    border-radius: 5px;
 }
 
-.fvh-root .playerMapFactors .factor {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.fvh-root .playerMapFactors .factor b {
-    color: #e7e8ec;
+.fvh-root .mapBreakdown .pname {
+    font-size: 10.5px;
     font-weight: 600;
+    color: #d6d8dd;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.fvh-root .playerMapFactors .empty {
-    color: #8a8a8a;
+.fvh-root .mapBreakdown .pval {
+    min-width: 30px;
+    text-align: center;
+    font-size: 10.5px;
+    font-weight: 800;
+    border-radius: 5px;
+    padding: 1px 0;
+    font-variant-numeric: tabular-nums;
 }
+
+.fvh-root .mapBreakdown-legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 8.5px;
+    color: #73777f;
+    border-top: 1px solid #24262d;
+    padding-top: 6px;
+    margin-top: 1px;
+}
+
+.fvh-root .mapBreakdown-legend > span {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.fvh-root .mapBreakdown-legend .sw {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+}
+
+.fvh-root .mapBreakdown-legend .sw.weak {
+    background: rgba(229, 72, 72, 0.45);
+}
+
+.fvh-root .mapBreakdown-legend .sw.strong {
+    background: rgba(56, 196, 104, 0.45);
+}
+

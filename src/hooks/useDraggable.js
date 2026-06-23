@@ -1,45 +1,64 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
-// Pointer-drag for the overlay window. Returns the current offset, an
-// `onPointerDown` to put on the draggable surface, and `isDragging` (used to
-// suppress hover tooltips while moving). Buttons inside the window should call
-// `stopPropagation` on pointerdown so clicking them doesn't start a drag.
-export default function useDraggable(initial = { x: 24, y: 96 }) {
-  const [position, setPosition] = useState(initial);
+// Movement (px) before a press becomes a drag rather than a click. Lets buttons
+// inside the window be dragged from while still being clickable.
+const DRAG_THRESHOLD = 4;
+
+// Pointer-drag for the overlay window. Controlled: the caller owns `position`
+// (so it can be loaded from / saved to storage). Calls `onMove(pos)` once a
+// drag passes the threshold and `onDrop()` when it ends — the caller clamps and
+// persists there. Dragging is disabled while `locked`. The whole surface drags,
+// INCLUDING buttons: a press that doesn't move stays a click; a press that moves
+// drags the window, and the trailing click (the button stays under the cursor as
+// the window follows it) is swallowed so it doesn't also fire the button.
+export default function useDraggable({ position, onMove, onDrop, locked }) {
   const [isDragging, setIsDragging] = useState(false);
-  const origin = useRef(null);
 
   const onPointerDown = useCallback(
     (e) => {
-      // Only the primary (left) button drags.
-      if (e.button !== 0) return;
-      origin.current = {
+      // Locked, or not the primary (left) button: no drag.
+      if (locked || e.button !== 0) return;
+      const start = {
         pointerX: e.clientX,
         pointerY: e.clientY,
         startX: position.x,
         startY: position.y,
       };
-      setIsDragging(true);
+      let dragging = false;
 
-      const onMove = (move) => {
-        const o = origin.current;
-        if (!o) return;
-        setPosition({
-          x: o.startX + (move.clientX - o.pointerX),
-          y: o.startY + (move.clientY - o.pointerY),
-        });
+      const move = (m) => {
+        const dx = m.clientX - start.pointerX;
+        const dy = m.clientY - start.pointerY;
+        if (!dragging) {
+          if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+          dragging = true;
+          setIsDragging(true);
+        }
+        onMove({ x: start.startX + dx, y: start.startY + dy });
       };
-      const onUp = () => {
-        origin.current = null;
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        if (!dragging) return; // never moved past the threshold: it was a click
         setIsDragging(false);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
+        onDrop();
+        // Swallow the click this drag would otherwise trigger (e.g. on a button
+        // we started the drag from). Capture on document beats any React handler
+        // regardless of where it listens; self-removes on that click, with a
+        // short fallback in case no click is dispatched.
+        const swallow = (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          document.removeEventListener("click", swallow, true);
+        };
+        document.addEventListener("click", swallow, true);
+        setTimeout(() => document.removeEventListener("click", swallow, true), 300);
       };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
     },
-    [position],
+    [position, onMove, onDrop, locked],
   );
 
-  return { position, isDragging, onPointerDown };
+  return { isDragging, onPointerDown };
 }

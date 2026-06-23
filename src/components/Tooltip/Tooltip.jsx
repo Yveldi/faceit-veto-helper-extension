@@ -4,9 +4,15 @@ import "./Tooltip.css";
 
 // Floating tooltip portaled to document.body so it's never clipped by the
 // window's bounds, however small the window gets. `placement` is "auto" (above,
-// flipping below when there's no room), or forced "above" / "below". Always
-// clamped to the viewport.
-export default function Tooltip({ anchorRef, placement = "auto", children }) {
+// flipping below when there's no room), forced "above" / "below", or "side"
+// (to the right of the anchor, flipping left when there's no room, top-aligned
+// with the anchor). Always clamped to the viewport.
+export default function Tooltip({
+  anchorRef,
+  placement = "auto",
+  gap = 8,
+  children,
+}) {
   const tipRef = useRef(null);
   const [pos, setPos] = useState(null);
 
@@ -16,7 +22,21 @@ export default function Tooltip({ anchorRef, placement = "auto", children }) {
     if (!anchor || !tip) return;
     const a = anchor.getBoundingClientRect();
     const t = tip.getBoundingClientRect();
-    const gap = 8;
+
+    if (placement === "side") {
+      // Prefer to the right of the anchor; flip to the left if it won't fit.
+      const right = a.right + gap;
+      const left = a.left - gap - t.width;
+      let l = right + t.width <= window.innerWidth - 4 ? right : left;
+      l = Math.max(4, Math.min(l, window.innerWidth - t.width - 4));
+      const top = Math.max(
+        4,
+        Math.min(a.top, window.innerHeight - t.height - 4),
+      );
+      setPos({ top, left: l });
+      return;
+    }
+
     const above = a.top - gap - t.height;
     const below = a.bottom + gap;
 
@@ -30,7 +50,7 @@ export default function Tooltip({ anchorRef, placement = "auto", children }) {
     left = Math.max(4, Math.min(left, window.innerWidth - t.width - 4));
 
     setPos({ top, left });
-  }, [anchorRef, children, placement]);
+  }, [anchorRef, children, placement, gap]);
 
   return createPortal(
     <div className="fvh-root">

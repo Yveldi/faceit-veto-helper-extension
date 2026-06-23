@@ -1,46 +1,33 @@
-import WindowButton from "./WindowButton";
-import LoadingDot from "../LoadingDot/LoadingDot";
 import MapWinProbabilities from "../MapWinProbabilities/MapWinProbabilities";
 import useHoverIntent from "../../hooks/useHoverIntent";
 
-// Default stage: per-map win probabilities for the main team. Hovering a map
-// reveals each main-team player's rating for it.
+// Default stage body: per-map win-probability cards for the main team. Hovering
+// a card (once loaded) reveals a side breakdown popover. During loading the
+// cards stream in and settle; the loading status sits in the legend row.
 export default function StageTwo({
   isDragging,
   data,
-  summaries,
-  onMinimize,
-  onExpand,
+  winSummaries,
+  phase,
+  cardPhase,
+  statusText,
 }) {
-  const hover = useHoverIntent(isDragging);
-  const { mapPool, mapThumbnails, mainTeamIndex, loading } = data;
+  // Drag is header-only now, so the body never starts a drag: show instantly.
+  const hover = useHoverIntent(isDragging, { showDelay: 0, dragCooldown: 0 });
+  const { mapPool, mapThumbnails, mainTeamIndex } = data;
   const otherIndex = mainTeamIndex === 0 ? 1 : 0;
+  // Status reflects real load progress even while the cards still show placeholders.
+  const bodyStatus = phase === "maps" || phase === "streaming" ? statusText : null;
 
   return (
-    <div className="fvh-stage">
-      <div className="fvh-window-header">
-        <WindowButton onClick={onMinimize} title="Minimize">
-          ▾
-        </WindowButton>
-        <WindowButton
-          onClick={onExpand}
-          title={loading ? "Loading…" : "Expand"}
-          disabled={loading}
-        >
-          ⤢
-        </WindowButton>
-      </div>
-      {loading || !summaries ? (
-        <LoadingDot />
-      ) : (
-        <MapWinProbabilities
-          mainTeam={summaries[mainTeamIndex]}
-          otherTeam={summaries[otherIndex]}
-          mapPool={mapPool}
-          mapThumbnails={mapThumbnails}
-          hover={hover}
-        />
-      )}
-    </div>
+    <MapWinProbabilities
+      mainTeam={winSummaries?.[mainTeamIndex]}
+      otherTeam={winSummaries?.[otherIndex]}
+      mapPool={mapPool}
+      mapThumbnails={mapThumbnails}
+      phase={cardPhase}
+      hover={hover}
+      bodyStatus={bodyStatus}
+    />
   );
 }

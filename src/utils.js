@@ -16,6 +16,24 @@ export function sleep(seconds) {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 }
 
+// Clamp a fixed-position {x,y} so at least `minVisible` (10% by default) of the
+// element stays within the viewport on each axis. Partly off-screen is allowed
+// on purpose; this only stops a window being saved/restored so far off-screen
+// that the user can't find and grab it. `el` provides the size; no-op without it.
+export function clampToViewport(pos, el, minVisible = 0.1) {
+  if (!el) return pos;
+  const { width: w, height: h } = el.getBoundingClientRect();
+  const clampAxis = (v, size, viewport) =>
+    Math.min(
+      Math.max(v, -(size * (1 - minVisible))),
+      viewport - size * minVisible,
+    );
+  return {
+    x: clampAxis(pos.x, w, window.innerWidth),
+    y: clampAxis(pos.y, h, window.innerHeight),
+  };
+}
+
 export function prettifyMapName(mapName) {
   const prefixesToStrip = ["de_", "cs_"];
   const stripped = prefixesToStrip.some((prefix) => mapName.startsWith(prefix))

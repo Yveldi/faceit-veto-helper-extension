@@ -42,6 +42,43 @@ export function computeTeamScores(roster, mapPool) {
   return { scoreByMap, totalElo };
 }
 
+// Team summaries for the WIN-PROBABILITY display while data is still streaming
+// in. Not-yet-loaded players are stood in for by an "average player" (the mean
+// elo + mean per-map score of everyone loaded so far), so the two teams stay
+// balanced and the shown % starts believable (~50%) and converges to the exact
+// value instead of spiking to 150-200% while one team is half-empty. Once every
+// player is loaded there are no stand-ins, so this returns the real summaries
+// unchanged. `teams` rosters carry a `loaded` flag (see useMatchData).
+export function estimateWinSummaries(teams, mapPool) {
+  const loaded = teams.flatMap((t) => t.roster).filter((p) => p.loaded);
+  // Nothing loaded yet: no basis to estimate (the UI shows placeholders here).
+  if (loaded.length === 0) {
+    return teams.map((t) => ({ ...t, ...computeTeamScores(t.roster, mapPool) }));
+  }
+
+  const meanElo = Math.round(
+    loaded.reduce((s, p) => s + playerElo(p.profile), 0) / loaded.length,
+  );
+  const meanByMap = {};
+  for (const map of mapPool) {
+    const vals = loaded
+      .map((p) => p.winrate[map])
+      .filter((v) => typeof v === "number");
+    meanByMap[map] = vals.length
+      ? vals.reduce((a, b) => a + b, 0) / vals.length
+      : 0;
+  }
+  const average = {
+    profile: { games: { cs2: { faceit_elo: meanElo } } },
+    winrate: meanByMap,
+  };
+
+  return teams.map((t) => {
+    const roster = t.roster.map((p) => (p.loaded ? p : average));
+    return { ...t, ...computeTeamScores(roster, mapPool) };
+  });
+}
+
 // Per-map win probability (%) for `mainTeam` against `otherTeam`. Identical to
 // the old BanSuggestion math: an elo-derived base win rate, doubled as a
 // multiplier, times the main team's share of the two teams' combined map score.
@@ -57,19 +94,4 @@ export function computeMapWinProbabilities({ mainTeam, otherTeam, mapPool }) {
     probabilities[map] = Number((odds * 100).toFixed(0));
   }
   return probabilities;
-}
-
-// The individual factors behind a single player's rating on one map, for the
-// Stage 3 hover. Returns null when the player has no data on that map.
-export function mapRatingFactors(rawStats, map) {
-  const entry = rawStats?.[map];
-  if (!entry) return null;
-  const [avgRating, winRate, matches] = entry;
-  return {
-    matches,
-    winRate: Math.round(winRate),
-    // FACEIT ratings are floats around 1.00 — round to integer and almost
-    // everyone collapses to 1, so keep 2 decimals.
-    avgRating: avgRating.toFixed(2),
-  };
 }
