@@ -9,6 +9,21 @@ name: Release to stores
 on:
   push:
     branches: [main]
+  # Manual run: builds and submits using the version ALREADY in the manifest,
+  # with no auto-bump, no commit, and no tag. Use it to re-run publishing or
+  # test the pipeline. NOTE: the stores reject re-submitting an existing
+  # version, so a manual run only reaches the stores if the committed manifest
+  # version is higher than what's currently live.
+  workflow_dispatch:
+    inputs:
+      chrome:
+        description: Submit to Chrome Web Store
+        type: boolean
+        default: true
+      firefox:
+        description: Submit to Firefox AMO
+        type: boolean
+        default: true
 
 permissions:
   contents: write   # needed to push the version-bump commit + tag back to main
@@ -35,21 +50,27 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Compute next patch version from latest tag
+      - name: Resolve version
         id: ver
         run: |
-          LATEST=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
-          if [ -z "$LATEST" ]; then
-            # No tags yet: seed from the committed manifest version.
-            BASE=$(node -p "require('./public/manifest.json').version")
-            echo "No existing tag; seeding from manifest version $BASE"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual run: publish the version already in the manifest, no bump.
+            NEXT=$(node -p "require('./public/manifest.json').version")
+            echo "Manual run; using existing manifest version $NEXT"
           else
-            BASE="${LATEST#v}"
-            echo "Latest tag is $LATEST"
+            # Push to main: auto-increment the patch from the latest tag.
+            LATEST=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
+            if [ -z "$LATEST" ]; then
+              BASE=$(node -p "require('./public/manifest.json').version")
+              echo "No existing tag; seeding from manifest version $BASE"
+            else
+              BASE="${LATEST#v}"
+              echo "Latest tag is $LATEST"
+            fi
+            IFS=. read -r MA MI PA <<< "$BASE"
+            NEXT="$MA.$MI.$((PA + 1))"
+            echo "Next version: $NEXT"
           fi
-          IFS=. read -r MA MI PA <<< "$BASE"
-          NEXT="$MA.$MI.$((PA + 1))"
-          echo "Next version: $NEXT"
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
 
       - run: npm ci
@@ -62,16 +83,10 @@ jobs:
       - name: Zip dist
         run: cd dist && zip -r ../extension.zip . && cd ..
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: extension
-          path: |
-            extension.zip
-            dist
-
       # Only after a successful build do we record the new version: commit the
       # stamped manifest/package back to main and create the matching tag.
       - name: Commit version bump and tag
+        if: github.event_name == 'push'
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           git config user.name "github-actions[bot]"
@@ -82,19 +97,39 @@ jobs:
           git push origin HEAD:main
           git push origin "v$VERSION"
 
+      # AMO requires human-readable source for bundled/minified extensions.
+      # git archive of the (now bump-committed) HEAD gives a clean snapshot of
+      # exactly the tracked files - no node_modules, no dist - so reviewers can
+      # reproduce the build with `npm ci && npm run build`. It matches the
+      # submitted version because we archive AFTER the bump commit.
+      - name: Build source archive for AMO
+        run: git archive --format=zip -o source.zip HEAD
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: |
+            extension.zip
+            source.zip
+            dist
+
   chrome:
     needs: build
     runs-on: ubuntu-latest
+    # On a push, always run; on a manual run, only if its checkbox was ticked.
+    if: github.event_name != 'workflow_dispatch' || inputs.chrome
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: extension
 
+      # Omitting the sub-command makes the CLI BOTH upload and publish. (There is
+      # no --auto-publish flag; `upload` alone only leaves a draft, and passing
+      # an unknown flag is what made the first run fail.)
       - name: Upload + publish to Chrome Web Store
         run: |
-          npx --yes chrome-webstore-upload-cli@3 upload \
-            --source extension.zip \
-            --auto-publish
+          npx --yes chrome-webstore-upload-cli@4 \
+            --source extension.zip
         env:
           EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
@@ -104,18 +139,27 @@ jobs:
   firefox:
     needs: build
     runs-on: ubuntu-latest
+    # On a push, always run; on a manual run, only if its checkbox was ticked.
+    if: github.event_name != 'workflow_dispatch' || inputs.firefox
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: extension
 
-      # web-ext signs and submits to the AMO "listed" channel (the public store).
-      # It polls AMO's automated review and exits non-zero if validation fails.
-      - name: Sign + submit to Firefox AMO
+      # web-ext submits to the AMO "listed" channel (the public store).
+      #  --approval-timeout=0  : submit and exit immediately instead of blocking
+      #                          the whole job polling AMO's review queue. AMO
+      #                          still reviews/publishes on its side afterwards.
+      #  --upload-source-code  : attach the source archive (built from tracked
+      #                          files) so AMO's review of our bundled JS passes
+      #                          without a manual source request.
+      - name: Submit to Firefox AMO
         run: |
           npx --yes web-ext@latest sign \
             --channel=listed \
             --source-dir=dist \
+            --upload-source-code=source.zip \
+            --approval-timeout=0 \
             --api-key="$AMO_JWT_ISSUER" \
             --api-secret="$AMO_JWT_SECRET"
         env:
