@@ -19,9 +19,11 @@ export default function MapBreakdownPopover({
         <span className="label">MATCHES PLAYED ON</span>
         <div className="row">
           <span className="map">{map.replace(/^[a-z]+_/, "")}</span>
-          <span className="pct" style={{ color: pctColor }}>
-            {pct}%
-          </span>
+          {pct != null && (
+            <span className="pct" style={{ color: pctColor }}>
+              {pct}%
+            </span>
+          )}
         </div>
       </div>
       {teams.map(({ team, main }) => (

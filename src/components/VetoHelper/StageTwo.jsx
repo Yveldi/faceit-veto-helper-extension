@@ -30,6 +30,7 @@ export default function StageTwo({
       mapThumbnails={mapThumbnails}
       playedMap={playedMap}
       phase={cardPhase}
+      breakdownPhase={phase}
       hover={hover}
       bodyStatus={bodyStatus}
       wide

@@ -64,6 +64,7 @@ export default function MapWinProbabilities({
   mapThumbnails,
   playedMap,
   phase,
+  breakdownPhase,
   hover,
   onMapEnter,
   onMapLeave,
@@ -106,16 +107,54 @@ export default function MapWinProbabilities({
     [],
   );
 
+  // Track the latest pointer position globally. `pointerenter` only fires on
+  // pointer MOVEMENT, so a cursor resting on a card while the breakdown loads
+  // never triggers it. We record the pointer here so that, the moment the
+  // breakdown becomes available, we can hit-test what it's resting on.
+  const pointerRef = useRef(null);
+  useEffect(() => {
+    const onMove = (e) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+    };
+    document.addEventListener("pointermove", onMove, true);
+    return () => document.removeEventListener("pointermove", onMove, true);
+  }, []);
+
+  // When the breakdown flips from unavailable to ready, open the popover for the
+  // card the cursor is already resting on (no movement, so no pointerenter).
+  const breakdownReadyForOpen =
+    (breakdownPhase ?? phase) !== "maps" && !!breakdownMain && !!breakdownOther;
+  const prevBreakdownReady = useRef(breakdownReadyForOpen);
+  useEffect(() => {
+    if (
+      breakdownReadyForOpen &&
+      !prevBreakdownReady.current &&
+      hover &&
+      pointerRef.current
+    ) {
+      const { x, y } = pointerRef.current;
+      const el = document.elementFromPoint(x, y);
+      const slot = el?.closest?.("[data-fvh-map]");
+      const map = slot?.getAttribute("data-fvh-map");
+      if (map) hover.onEnter(map);
+    }
+    prevBreakdownReady.current = breakdownReadyForOpen;
+  }, [breakdownReadyForOpen, hover]);
+
   if (phase === "init") {
     return <InitSkeleton rows={Math.min(mapPool.length || 5, 7)} wide={wide} />;
   }
 
   const showVals = phase !== "maps";
   const loaded = phase === "loaded";
-  // The hover breakdown is available as soon as real per-map values exist (i.e.
-  // from "streaming" on, not just "loaded") — players still arriving show a
-  // shimmer row inside the popover, mirroring the Stage 3 matrix.
-  const breakdownReady = showVals && breakdownMain && breakdownOther;
+  // The hover breakdown tracks the REAL load phase, not the (possibly held)
+  // card phase: the win-% cards stay in their placeholder until both teams have
+  // a player loaded (a comparison needs both sides), but the breakdown shows
+  // each team's own per-player scores, which are meaningful the moment the first
+  // player streams in. So it opens from "streaming" on — players still arriving
+  // show a shimmer row inside the popover, mirroring the Stage 3 matrix.
+  const breakdownVals = (breakdownPhase ?? phase) !== "maps";
+  const breakdownReady = breakdownVals && breakdownMain && breakdownOther;
   const single = mapPool.length === 1; // nothing to ban → no color/tags
   // The map the match has settled on, highlighted with a "now playing" frame
   // wherever it appears in the displayed pool — for a real veto (frame on the
@@ -239,26 +278,35 @@ export default function MapWinProbabilities({
       </div>
     );
 
+    // Always mount the Hoverable (when hover is wired and not exiting) so the
+    // active map is tracked from first hover — even while the breakdown is still
+    // loading. Then, the instant `breakdownReady` flips with the cursor already
+    // resting on a card, `active` is already true and the popover appears without
+    // needing the user to move the cursor off and back on.
     const inner =
-      hover && breakdownReady && !exit ? (
+      hover && !exit ? (
         <Hoverable
           className="fvh-mwp-anchor"
-          active={hover.activeKey === d.map}
+          active={breakdownReady && hover.activeKey === d.map}
           onEnter={() => hover.onEnter(d.map)}
           onLeave={hover.onLeave}
-          renderTooltips={(ref) => (
-            // gap clears the panel's right padding + border so the popover sits
-            // beside the window, not on top of it
-            <Tooltip anchorRef={ref} placement="side" gap={26}>
-              <MapBreakdownPopover
-                mainTeam={breakdownMain}
-                otherTeam={breakdownOther}
-                map={d.map}
-                pct={d.pct}
-                pctColor={d.color}
-              />
-            </Tooltip>
-          )}
+          renderTooltips={
+            breakdownReady
+              ? (ref) => (
+                  // gap clears the panel's right padding + border so the popover
+                  // sits beside the window, not on top of it
+                  <Tooltip anchorRef={ref} placement="side" gap={26}>
+                    <MapBreakdownPopover
+                      mainTeam={breakdownMain}
+                      otherTeam={breakdownOther}
+                      map={d.map}
+                      pct={d.pct}
+                      pctColor={d.color}
+                    />
+                  </Tooltip>
+                )
+              : undefined
+          }
         >
           {card}
         </Hoverable>
@@ -274,6 +322,7 @@ export default function MapWinProbabilities({
     return (
       <div
         key={d.map}
+        data-fvh-map={exit ? undefined : d.map}
         className={`fvh-mwp-slot${cls}`}
         style={{
           top: d.top,
