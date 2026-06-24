@@ -28,6 +28,18 @@ export default function MapBreakdownPopover({
         <div className="mapBreakdown-team" key={team.name}>
           <div className={`name${main ? " main" : ""}`}>{team.name}</div>
           {team.roster.map((p) => {
+            // Players still streaming in show a shimmer instead of a value, so
+            // the breakdown is usable before everyone has loaded.
+            if (!p.loaded) {
+              return (
+                <div className="prow" key={p.profile.id}>
+                  <span className="pname">{p.profile.nickname}</span>
+                  <span className="pval pending">
+                    <span className="fvh-sweep" />
+                  </span>
+                </div>
+              );
+            }
             const v = p.winrate[map] ?? 0;
             const s = cellStyle(v);
             return (

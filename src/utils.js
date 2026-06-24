@@ -16,18 +16,20 @@ export function sleep(seconds) {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 }
 
-// Clamp a fixed-position {x,y} so at least `minVisible` (10% by default) of the
-// element stays within the viewport on each axis. Partly off-screen is allowed
-// on purpose; this only stops a window being saved/restored so far off-screen
-// that the user can't find and grab it. `el` provides the size; no-op without it.
-export function clampToViewport(pos, el, minVisible = 0.1) {
-  if (!el) return pos;
-  const { width: w, height: h } = el.getBoundingClientRect();
-  const clampAxis = (v, size, viewport) =>
-    Math.min(
-      Math.max(v, -(size * (1 - minVisible))),
-      viewport - size * minVisible,
-    );
+// Clamp a fixed-position {x,y} so the window stays FULLY on-screen for its
+// CURRENT size, with a small `margin` gutter. `size` is the measured
+// {width,height} of the currently-visible content (the window root itself has no
+// size — both stage layers are absolutely positioned — so the caller measures the
+// active layer and passes its rect here). Full containment, not a "keep 10% on
+// screen" safety net: the live size is the only limit, so when the window grows
+// (Stage 2 -> 3, or the body expanding) re-clamping pushes it inward to fit. If
+// the content is larger than the viewport on an axis it pins to the top/left
+// gutter (showing the window's origin). No-op without a size.
+export function clampToViewport(pos, size, margin = 8) {
+  if (!size) return pos;
+  const { width: w, height: h } = size;
+  const clampAxis = (v, s, viewport) =>
+    Math.max(margin, Math.min(v, viewport - s - margin));
   return {
     x: clampAxis(pos.x, w, window.innerWidth),
     y: clampAxis(pos.y, h, window.innerHeight),
@@ -49,20 +51,48 @@ export function prettifyMapName(mapName) {
 
 let queueChain = Promise.resolve();
 let earliestNextFetch = 0;
-let requestCounter = 0;
 const MIN_GAP_MS = 400;
 const RATE_LIMIT_COOLDOWN_MS = 10_000;
-const debugStart = performance.now();
-const tag = () =>
-  `t+${(performance.now() - debugStart).toFixed(0).padStart(5)}ms`;
 
-async function acquireFetchSlot(reqId, attempt) {
+// Cross-tab rate-limit coordination. FACEIT applies its limit per account, not
+// per tab, so two open faceit.com tabs each running their own 400ms queue would
+// fire at twice the safe rate. We share only the cooldown CLOCK between tabs
+// (not the requests — those stay in each tab's content script so they keep the
+// same-origin cookie auth): whenever any tab reserves a slot or hits a 429, it
+// broadcasts its new `earliestNextFetch`, and every other tab pulls its own
+// clock forward to match. Each tab still serializes its own queue locally; the
+// shared floor just stops tabs from overlapping. BroadcastChannel is supported
+// in every browser we target (Firefox 109+, Chrome) but guarded for safety.
+const rateLimitChannel =
+  typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel("fvh-rate-limit")
+    : null;
+
+// Pull our local clock forward to a floor another tab announced (or any newer
+// reservation). Only ever moves the clock later, never earlier.
+function bumpEarliestNextFetch(ts) {
+  if (ts > earliestNextFetch) earliestNextFetch = ts;
+}
+
+rateLimitChannel?.addEventListener("message", (event) => {
+  const ts = event.data?.earliestNextFetch;
+  if (typeof ts === "number") bumpEarliestNextFetch(ts);
+});
+
+// Reserve the next slot locally AND tell other tabs about it, so their queues
+// back off behind ours.
+function reserveSlot(untilTs) {
+  bumpEarliestNextFetch(untilTs);
+  rateLimitChannel?.postMessage({ earliestNextFetch: earliestNextFetch });
+}
+
+async function acquireFetchSlot() {
   const myTurn = queueChain.then(async () => {
     while (Date.now() < earliestNextFetch) {
       const waitMs = earliestNextFetch - Date.now();
       await sleep(waitMs / 1000);
     }
-    earliestNextFetch = Date.now() + MIN_GAP_MS;
+    reserveSlot(Date.now() + MIN_GAP_MS);
   });
   queueChain = myTurn.catch(() => {});
   await myTurn;
@@ -73,20 +103,16 @@ export async function fetchWithRetry(url, { signal } = {}) {
   const baseWaitTime = 4;
   const maxWaitTime = 20;
   const retryCodes = [429, 503, 502, 504];
-  const reqId = ++requestCounter;
-  const shortUrl = url.length > 50 ? `...${url.slice(-50)}` : url;
 
   for (let i = 0; i < maxRetries; i++) {
     // Optional cancellation. Bail before taking a queue slot and again after,
     // so an aborted request never fires and frees the queue immediately. Timing
     // for normal (no-signal) callers is unchanged.
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    await acquireFetchSlot(reqId, i);
+    await acquireFetchSlot();
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
-    const fetchStart = performance.now();
     const response = await fetch(url, { signal });
-    const fetchMs = (performance.now() - fetchStart).toFixed(0);
 
     if (response.ok) return response;
     if (response.status === 404) {
@@ -101,7 +127,9 @@ export async function fetchWithRetry(url, { signal } = {}) {
         Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000
           : RATE_LIMIT_COOLDOWN_MS;
-      earliestNextFetch = Math.max(earliestNextFetch, Date.now() + cooldownMs);
+      // Broadcast the cooldown so every other tab backs off too — a 429 is
+      // account-wide, so all tabs must wait, not just the one that got it.
+      reserveSlot(Date.now() + cooldownMs);
     }
     const backoff = Math.min(baseWaitTime * 2 ** i, maxWaitTime);
     await sleep(backoff);

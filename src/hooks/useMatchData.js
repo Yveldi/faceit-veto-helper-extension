@@ -17,19 +17,28 @@ async function fetchMatchPayload(matchId, signal) {
   return (await res.json()).payload;
 }
 
-// Fetch by player id (stable across nickname changes); the roster gives ids.
-async function fetchPlayerProfile(playerId, signal) {
-  const res = await fetchWithRetry(`${faceitAPI}/users/v1/users/${playerId}`, {
-    signal,
-  });
-  return (await res.json()).payload;
-}
-
 // --- pure helpers -----------------------------------------------------------
 
+// Build the player `profile` we pass downstream straight from the match payload's
+// roster entry. The match/v2 response ALREADY carries each player's `elo` and
+// nickname inline (it's what FACEIT renders the room from), so we don't fetch
+// `users/v1/users/{id}` per player at all — that was 10 redundant requests per
+// match. Only `id`, `nickname`, and `games.cs2.faceit_elo` are consumed (see
+// stats.js / PlayerMatrix); `elo` falls back to 0 if a payload ever omits it
+// (same effect the old failed-profile path had: zero elo weight).
+function rosterProfile(rosterEntry) {
+  return {
+    id: rosterEntry.id,
+    nickname: rosterEntry.nickname,
+    games: { cs2: { faceit_elo: rosterEntry.elo ?? 0 } },
+  };
+}
+
 // The lobby's map pool lives in payload.maps and/or matchCustom.tree; we take
-// whichever lists more maps as the available pool. Pool + thumbnails MUST come
-// from the same source or maps get undefined thumbnails — returned as a pair.
+// whichever lists more maps as the available pool. We prefer our bundled
+// high-quality thumbnail (keyed by class_name, same as mapPool.json `id`) and
+// only fall back to the match payload's low-res `image_sm` for maps we don't
+// ship, so the available pool looks identical to the default full pool.
 function resolveMapPool(mapData, regretSingleMap, regretAlways) {
   const fromMaps = mapData?.fromMaps ?? [];
   const fromTree = mapData?.fromTree ?? [];
@@ -43,7 +52,10 @@ function resolveMapPool(mapData, regretSingleMap, regretAlways) {
     return {
       mapPool: candidates.map((m) => m.class_name),
       thumbnails: Object.fromEntries(
-        candidates.map((m) => [m.class_name, m.image_sm]),
+        candidates.map((m) => [
+          m.class_name,
+          defaultMapThumbnail[m.class_name] ?? m.image_sm,
+        ]),
       ),
     };
   }
@@ -59,11 +71,13 @@ function findMainTeamIndex(teams, selfUserId) {
   return index === -1 ? 0 : index;
 }
 
-// A roster entry before its profile/stats have loaded: nickname is known from
-// the match payload, everything else is empty and `loaded` is false.
+// A roster entry before its per-map stats have loaded. Nickname AND elo are
+// already known from the match payload (so the matrix can show elo immediately);
+// only `winrate`/`stats` are empty until the stats fetch fills them in, which is
+// what `loaded` gates.
 function skeletonPlayer(rosterEntry) {
   return {
-    profile: { id: rosterEntry.id, nickname: rosterEntry.nickname },
+    profile: rosterProfile(rosterEntry),
     winrate: {},
     stats: {},
     loaded: false,
@@ -110,6 +124,9 @@ export default function useMatchData(
         const sources = {
           fromMaps: payload.maps ?? [],
           fromTree: payload.matchCustom?.tree?.map?.values?.value ?? [],
+          // The map(s) the veto has settled on. For a BO1 this is the single
+          // decided map once the veto finishes (empty while it's still ongoing).
+          pick: payload.voting?.map?.pick ?? [],
         };
         const rawTeams = Object.values(payload.teams);
 
@@ -123,23 +140,23 @@ export default function useMatchData(
           })),
         );
 
-        // Phase "streaming": enrich each player in place, one at a time. The
-        // rate limiter already paces these; each arrival re-renders the UI.
+        // Phase "streaming": fetch each player's per-map stats in place, one at
+        // a time (the only per-player request left — the profile/elo already
+        // came inline with the match payload). The rate limiter paces these;
+        // each arrival re-renders the UI.
         for (let ti = 0; ti < rawTeams.length; ti++) {
           const roster = rawTeams[ti].roster;
           for (let pi = 0; pi < roster.length; pi++) {
             if (signal.aborted) return;
-            const profile = await fetchPlayerProfile(roster[pi].id, signal);
-            const stats = profile?.id
-              ? await getPlayerStats(profile, 90, signal)
-              : {};
+            const profile = rosterProfile(roster[pi]);
+            const stats = await getPlayerStats(profile, 90, signal);
             if (signal.aborted) return;
 
             setTeams((prev) => {
               if (!prev) return prev;
               const next = prev.map((t) => ({ ...t, roster: [...t.roster] }));
               next[ti].roster[pi] = {
-                profile: profile?.id ? profile : next[ti].roster[pi].profile,
+                profile,
                 winrate: computePlayerWinrate(stats),
                 stats,
                 loaded: true,
@@ -169,6 +186,18 @@ export default function useMatchData(
     return { mapPool, mapThumbnails: thumbnails };
   }, [mapData, regretSingleMap, regretAlways]);
 
+  // The map the match has settled on, once it's been determined — surfaced so the
+  // displayed pool can highlight the card for the map actually being played
+  // (regardless of pool size or the Regret Helper). Prefer the veto's explicit
+  // pick; fall back to `payload.maps` once it lists a single map. Null while the
+  // veto is still ongoing (no map decided yet).
+  const playedMap = useMemo(() => {
+    const pick = mapData?.pick ?? [];
+    if (pick.length === 1) return pick[0];
+    const fromMaps = mapData?.fromMaps ?? [];
+    return fromMaps.length === 1 ? fromMaps[0].class_name : null;
+  }, [mapData]);
+
   const mainTeamIndex = useMemo(
     () => (teams ? findMainTeamIndex(teams, selfUserId) : 0),
     [teams, selfUserId],
@@ -192,6 +221,7 @@ export default function useMatchData(
     teams,
     mapPool,
     mapThumbnails,
+    playedMap,
     mainTeamIndex,
     phase,
     loadedCount,

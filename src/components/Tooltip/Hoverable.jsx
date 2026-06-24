@@ -4,6 +4,7 @@ import { useRef } from "react";
 // may return one or several <Tooltip> elements all anchored to this cell.
 export default function Hoverable({
   className,
+  style,
   active,
   onEnter,
   onLeave,
@@ -15,6 +16,7 @@ export default function Hoverable({
     <div
       ref={ref}
       className={className}
+      style={style}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
     >

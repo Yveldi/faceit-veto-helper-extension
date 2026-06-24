@@ -8,17 +8,20 @@ export default function StageThree({
   winSummaries,
   phase,
   cardPhase,
+  isDragging,
 }) {
-  const { mapPool, mapThumbnails, mainTeamIndex } = data;
+  const { mapPool, mapThumbnails, mainTeamIndex, playedMap } = data;
   return (
     <MatchOverview
       summaries={summaries}
       winSummaries={winSummaries}
       mapPool={mapPool}
       mapThumbnails={mapThumbnails}
+      playedMap={playedMap}
       mainTeamIndex={mainTeamIndex}
       phase={phase}
       cardPhase={cardPhase}
+      isDragging={isDragging}
     />
   );
 }

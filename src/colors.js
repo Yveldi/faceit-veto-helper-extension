@@ -33,6 +33,22 @@ export function cellStyle(v) {
   return { bg: "rgba(56,196,104,.2)", fg: "#7fe2a4", rowBg: "rgba(56,196,104,.06)" };
 }
 
+// Color for a win-rate percentage: >=55 green, >=50 amber, else red. Used in the
+// Stage 3 hover popovers (per-player / per-map stat tiles).
+export function winRateColor(pct) {
+  if (pct >= 55) return "#6fe09a";
+  if (pct >= 50) return "#e6c14a";
+  return "#ff8585";
+}
+
+// Color for a FACEIT rating (centred on 1.00): >=1.10 green, >=0.95 amber, else
+// red. Used in the Stage 3 hover popovers.
+export function ratingColor(rating) {
+  if (rating >= 1.1) return "#6fe09a";
+  if (rating >= 0.95) return "#e6c14a";
+  return "#ff8585";
+}
+
 // Short uppercase code for a map id, e.g. "de_mirage" -> "MIR". Pool/language
 // independent (derived from the prettified name's first letters).
 export function mapCode(prettyName) {

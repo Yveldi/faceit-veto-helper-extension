@@ -86,6 +86,13 @@
     font-variant-numeric: tabular-nums;
 }
 
+.fvh-root .mapBreakdown .pval.pending {
+    position: relative;
+    overflow: hidden;
+    background: #24262d;
+    min-height: 14px;
+}
+
 .fvh-root .mapBreakdown-legend {
     display: flex;
     align-items: center;
@@ -115,5 +122,85 @@
 
 .fvh-root .mapBreakdown-legend .sw.strong {
     background: rgba(56, 196, 104, 0.45);
+}
+
+/* Stage 3 cell popover: one player's stats on one specific map (matches / win
+   rate / FACEIT rating), shown on hovering a matrix value cell. */
+.fvh-root .fvh-cellpop {
+    width: 212px;
+    white-space: normal;
+}
+
+.fvh-root .fvh-cellpop-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+.fvh-root .fvh-cellpop-head .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    flex: none;
+}
+
+.fvh-root .fvh-cellpop-head .who {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #6b7280;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fvh-root .fvh-cellpop-map {
+    font-size: 13px;
+    font-weight: 800;
+    color: #f1f2f4;
+    margin-bottom: 9px;
+    text-transform: capitalize;
+}
+
+.fvh-root .fvh-cellpop-tiles {
+    display: flex;
+    gap: 6px;
+}
+
+.fvh-root .fvh-cellpop-tile {
+    flex: 1;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 7px 4px 6px;
+}
+
+.fvh-root .fvh-cellpop-tile .num {
+    display: block;
+    font-size: 18px;
+    font-weight: 800;
+    color: #f1f2f4;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.fvh-root .fvh-cellpop-tile .lbl {
+    display: block;
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.fvh-root .fvh-cellpop-empty {
+    font-size: 10px;
+    color: #73777f;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 9px 10px;
 }
 

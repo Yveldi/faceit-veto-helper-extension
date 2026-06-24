@@ -12,9 +12,11 @@ export default function MatchOverview({
   winSummaries,
   mapPool,
   mapThumbnails,
+  playedMap,
   mainTeamIndex,
   phase,
   cardPhase,
+  isDragging,
 }) {
   const [hoverCol, setHoverCol] = useState(null);
   const otherIndex = mainTeamIndex === 0 ? 1 : 0;
@@ -27,6 +29,7 @@ export default function MatchOverview({
           otherTeam={winSummaries?.[otherIndex]}
           mapPool={mapPool}
           mapThumbnails={mapThumbnails}
+          playedMap={playedMap}
           phase={cardPhase}
           onMapEnter={setHoverCol}
           onMapLeave={() => setHoverCol(null)}
@@ -37,10 +40,12 @@ export default function MatchOverview({
         teams={summaries}
         mapPool={mapPool}
         mapThumbnails={mapThumbnails}
+        playedMap={playedMap}
         phase={phase}
         hoverCol={hoverCol}
         onColEnter={setHoverCol}
         onColLeave={() => setHoverCol(null)}
+        isDragging={isDragging}
       />
     </div>
   );

@@ -1,5 +1,9 @@
 import { cellStyle, mapCode, eloToLevel, levelColor } from "../../colors";
 import { prettifyMapName, defaultMapThumbnail } from "../../utils";
+import Hoverable from "../Tooltip/Hoverable";
+import Tooltip from "../Tooltip/Tooltip";
+import CellStatsPopover from "../Tooltip/CellStatsPopover";
+import useHoverIntent from "../../hooks/useHoverIntent";
 
 const TEAM_COLORS = ["#5fe09a", "#7aa7ff"];
 
@@ -50,11 +54,22 @@ export default function PlayerMatrix({
   teams,
   mapPool,
   mapThumbnails,
+  playedMap,
   phase,
   hoverCol,
   onColEnter,
   onColLeave,
+  isDragging,
 }) {
+  // Per-cell hover popover (one player's stats on one map). Drive both the
+  // shared column highlight (hoverCol) and the popover from the same pointer:
+  // entering a cell rings its column AND shows the popover. Instant, like the
+  // Stage 2 card tooltips, since the matrix body is not a drag handle.
+  const cellHover = useHoverIntent(isDragging, {
+    showDelay: 0,
+    dragCooldown: 0,
+  });
+
   if (phase === "init" || !teams) {
     return <MatrixSkeleton cols={Math.min(mapPool.length || 5, 7)} />;
   }
@@ -78,12 +93,15 @@ export default function PlayerMatrix({
               {mapPool.map((map) => {
                 const dim = hoverCol != null && hoverCol !== map;
                 const thumb = mapThumbnails[map] ?? defaultMapThumbnail[map];
+                // Ring the map the match has settled on (matches the Stage 2
+                // "now playing" frame); the hover ring takes precedence.
+                const playing = playedMap && map === playedMap;
                 return (
                   <span
                     key={map}
                     className={`pmHeadCell${hoverCol === map ? " active" : ""}${
                       dim ? " dim" : ""
-                    }`}
+                    }${playing ? " playing" : ""}`}
                     style={{
                       backgroundImage: thumb ? `url('${thumb}')` : undefined,
                     }}
@@ -103,14 +121,14 @@ export default function PlayerMatrix({
                   <div className="pmRow" key={p.profile.id}>
                     <span className="pmRowLabel">
                       <span className="pmName">{p.profile.nickname}</span>
-                      {p.loaded && elo && (
+                      {elo ? (
                         <span
                           className="pmElo"
                           style={{ color: levelColor(eloToLevel(elo)) }}
                         >
                           {elo}
                         </span>
-                      )}
+                      ) : null}
                     </span>
                     {p.loaded
                       ? mapPool.map((map) => {
@@ -118,16 +136,36 @@ export default function PlayerMatrix({
                           const s = cellStyle(v);
                           const active = hoverCol === map;
                           const dim = hoverCol != null && !active;
+                          const cellKey = `${p.profile.id}|${map}`;
                           return (
-                            <span
+                            <Hoverable
                               key={map}
                               className={`pmCell pmCell-in${
                                 active ? " active" : ""
                               }${dim ? " dim" : ""}`}
                               style={{ background: s.bg, color: s.fg }}
+                              active={cellHover.activeKey === cellKey}
+                              onEnter={() => {
+                                cellHover.onEnter(cellKey);
+                                onColEnter(map);
+                              }}
+                              onLeave={() => {
+                                cellHover.onLeave();
+                                onColLeave();
+                              }}
+                              renderTooltips={(ref) => (
+                                <Tooltip anchorRef={ref} placement="auto">
+                                  <CellStatsPopover
+                                    player={p.profile.nickname}
+                                    map={map}
+                                    teamColor={TEAM_COLORS[ti]}
+                                    stat={p.stats[map]}
+                                  />
+                                </Tooltip>
+                              )}
                             >
                               {v}
-                            </span>
+                            </Hoverable>
                           );
                         })
                       : mapPool.map((map) => (

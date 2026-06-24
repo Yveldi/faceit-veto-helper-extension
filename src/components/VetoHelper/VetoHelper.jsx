@@ -8,6 +8,7 @@ import {
   loadVetoHelperPosition,
 } from "../../settings";
 import useDraggable from "../../hooks/useDraggable";
+import useVetoProgress from "../../hooks/useVetoProgress";
 import DraggableWindow from "./DraggableWindow";
 import PanelShell from "./PanelShell";
 import StageOne from "./StageOne";
@@ -15,6 +16,24 @@ import StageTwo from "./StageTwo";
 import StageThree from "./StageThree";
 
 const DEFAULT_POSITION = { x: 24, y: 96 };
+
+// The window root has no size (both stage layers are absolutely positioned), so
+// measure whichever layer is currently visible. Stage 1 shows the logo layer;
+// Stage 2/3 show the panel layer. Use offsetWidth/Height, NOT
+// getBoundingClientRect: the crossfade tweens a `transform: scale()` on the
+// layer, which getBoundingClientRect would fold into the size (reading the
+// mid-tween 0.92 scale and under-measuring), whereas offset sizes report the
+// true resting layout footprint regardless of the transform.
+function measureVisible(root, stage) {
+  if (!root) return null;
+  const layer = root.querySelector(
+    stage === 1 ? ".fvh-logo-layer" : ".fvh-panel-layer",
+  );
+  if (!layer) return null;
+  const width = layer.offsetWidth;
+  const height = layer.offsetHeight;
+  return width && height ? { width, height } : null;
+}
 
 // Loading status line shared by the Stage 3 title chip and the Stage 2 body.
 function statusFor(phase, loadedCount, totalCount) {
@@ -32,7 +51,8 @@ export default function VetoHelper({ matchId, data, locked }) {
   const [stage, setStage] = useState(2);
   const [position, setPosition] = useState(null); // null until loaded
   const windowRef = useRef(null);
-  const clampedOnce = useRef(false);
+  const positionRef = useRef(null);
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -44,22 +64,61 @@ export default function VetoHelper({ matchId, data, locked }) {
     };
   }, []);
 
-  useLayoutEffect(() => {
-    if (clampedOnce.current || !position || !windowRef.current) return;
-    clampedOnce.current = true;
-    const clamped = clampToViewport(position, windowRef.current);
-    if (clamped.x !== position.x || clamped.y !== position.y) {
+  // Keep the latest position reachable from the size/resize observers (which run
+  // outside React's render and would otherwise close over a stale value).
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  // Push the window inward to fit its CURRENT footprint. Runs on load, on every
+  // size change of the visible layer (Stage 2 -> 3, body growing/shrinking as
+  // players stream in, the Regret Helper toggling the pool) and on viewport
+  // resize. Skipped mid-drag so it never fights the user's pointer.
+  const reclamp = useCallback(() => {
+    if (draggingRef.current) return;
+    const pos = positionRef.current;
+    if (!pos) return;
+    const size = measureVisible(windowRef.current, stage);
+    const clamped = clampToViewport(pos, size);
+    if (clamped.x !== pos.x || clamped.y !== pos.y) {
       setPosition(clamped);
       saveVetoHelperPosition(clamped);
     }
-  }, [position]);
+  }, [stage]);
 
-  const onMove = useCallback((pos) => setPosition(pos), []);
+  useLayoutEffect(() => {
+    if (!position || !windowRef.current) return;
+    reclamp();
+    const layer = windowRef.current.querySelector(
+      stage === 1 ? ".fvh-logo-layer" : ".fvh-panel-layer",
+    );
+    const ro = layer ? new ResizeObserver(() => reclamp()) : null;
+    if (ro && layer) ro.observe(layer);
+    window.addEventListener("resize", reclamp);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", reclamp);
+    };
+    // position is intentionally excluded: re-subscribing on every drag tick would
+    // thrash the observer. The observer reads the live position via the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, reclamp, !!position]);
+
+  // Constrain the window to the viewport AS it moves, so it can never be dragged
+  // past an edge in the first place (preventive, not a snap-back on drop).
+  const onMove = useCallback(
+    (pos) => {
+      draggingRef.current = true;
+      const size = measureVisible(windowRef.current, stage);
+      setPosition(clampToViewport(pos, size));
+    },
+    [stage],
+  );
   const onDrop = useCallback(() => {
+    draggingRef.current = false;
     setPosition((pos) => {
-      const clamped = clampToViewport(pos, windowRef.current);
-      saveVetoHelperPosition(clamped);
-      return clamped;
+      saveVetoHelperPosition(pos);
+      return pos;
     });
   }, []);
 
@@ -75,10 +134,29 @@ export default function VetoHelper({ matchId, data, locked }) {
     [locked],
   );
 
+  // Live veto progress from the DOM: drop banned maps from the pool as they're
+  // banned, without refetching match/v2 (see useVetoProgress).
+  const { banned, sawVeto } = useVetoProgress(matchId, data.mapPool);
+
   if (!matchId || !position) return null;
 
   const { phase, loadedCount, totalCount } = data;
   const statusText = statusFor(phase, loadedCount, totalCount);
+
+  // Apply live veto progress: once we've witnessed an active veto, drop the
+  // banned maps from the displayed pool and — when a single map remains — treat
+  // it as the played map (the "now playing" highlight). Until then, use the
+  // fetched pool / playedMap unchanged.
+  const livePool =
+    sawVeto && banned.size
+      ? data.mapPool.filter((m) => !banned.has(m))
+      : data.mapPool;
+  const livePlayedMap =
+    sawVeto && livePool.length === 1 ? livePool[0] : data.playedMap;
+  const liveData =
+    livePool === data.mapPool && livePlayedMap === data.playedMap
+      ? data
+      : { ...data, mapPool: livePool, playedMap: livePlayedMap };
 
   // The win-probability cards need at least one player from BOTH teams before
   // any comparison is meaningful (players load one team at a time, so until the
@@ -96,17 +174,17 @@ export default function VetoHelper({ matchId, data, locked }) {
   // Real per-map team scores (used by the Stage 3 matrix + the hover breakdown,
   // which show actual loaded players only). Partial during streaming, final when
   // loaded.
-  const summaries = data.teams
-    ? data.teams.map((team) => ({
+  const summaries = liveData.teams
+    ? liveData.teams.map((team) => ({
         ...team,
-        ...computeTeamScores(team.roster, data.mapPool),
+        ...computeTeamScores(team.roster, liveData.mapPool),
       }))
     : null;
   // For the win-probability cards, stand in for not-yet-loaded players so the %
   // settles believably instead of spiking while one team is half-empty. Equal to
   // `summaries` once everything is loaded.
-  const winSummaries = data.teams
-    ? estimateWinSummaries(data.teams, data.mapPool)
+  const winSummaries = liveData.teams
+    ? estimateWinSummaries(liveData.teams, liveData.mapPool)
     : null;
 
   const isStage1 = stage === 1;
@@ -144,16 +222,18 @@ export default function VetoHelper({ matchId, data, locked }) {
         >
           {stage === 3 ? (
             <StageThree
-              data={data}
+              data={liveData}
               summaries={summaries}
               winSummaries={winSummaries}
               phase={phase}
               cardPhase={cardPhase}
+              isDragging={isDragging}
             />
           ) : (
             <StageTwo
               isDragging={isDragging}
-              data={data}
+              data={liveData}
+              summaries={summaries}
               winSummaries={winSummaries}
               phase={phase}
               cardPhase={cardPhase}

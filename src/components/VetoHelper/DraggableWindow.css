@@ -1,3 +1,27 @@
+/* ---------- host-CSS isolation (READ: veto-helper-sizing-spec §0) ----------
+   The overlay renders INSIDE faceit.com's origin, so the page's own
+   box-sizing / line-height / font would otherwise inherit in and collapse this
+   layout (a host line-height:1.6 alone balloons the title bar, legend, and
+   every matrix row — that is the "claustrophobic / doesn't scale right" bug).
+   Every padding value in the overlay assumes border-box, and every spacing
+   value assumes line-height:normal. Reset both on the root AND all descendants
+   so nothing depends on what faceit happens to set. This rule targets the bare
+   `.fvh-root` so it also covers the tooltip/popover portals (which mount a bare
+   `.fvh-root` wrapper on document.body, outside the window). */
+.fvh-root,
+.fvh-root * {
+    box-sizing: border-box;
+}
+
+.fvh-root {
+    line-height: normal;
+    /* faceit.com's UI font is the "Play" Google font, served on the page, so
+       naming it here resolves to the loaded font (no need to bundle it). Set on
+       the bare root so portaled popovers get it too. Falls back to system. */
+    font-family: "Play", system-ui, "Segoe UI", sans-serif;
+    color: #e7e8ec;
+}
+
 .fvh-root.fvh-window {
     position: fixed;
     /* one below the auto-accept bar's max z-index so the bar stays on top */
@@ -6,8 +30,6 @@
        panel layers are stacked absolutely at this corner, so the window itself
        has no size — it's just the anchor point. */
     background: transparent;
-    color: #e7e8ec;
-    font-family: inherit;
     font-size: 14px;
     user-select: none;
     cursor: default;
@@ -30,6 +52,10 @@
 @keyframes fvhcellin {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+@keyframes fvhdotpulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.6); }
 }
 @keyframes fvhfadein {
     from { opacity: 0; }

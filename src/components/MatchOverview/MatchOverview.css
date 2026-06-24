@@ -11,6 +11,9 @@
 /* ---------- Player matrix (Stage 3 right panel) ---------- */
 .fvh-root .playerMatrix {
     flex: none;
+    /* spec §4: matrix column 312px. min-width so a 5-map pool gets the designed
+       breathing room while a larger pool (7-map veto) still grows past it. */
+    min-width: 312px;
     border-left: 1px solid rgba(255, 255, 255, 0.07);
     padding-left: 16px;
     animation: fvhmatrixin 0.25s ease;
@@ -67,16 +70,16 @@
     gap: 3px;
 }
 
+/* spec §4: name gutter is exactly 104px (header + every player row align to it),
+   name and elo left-aligned with a 5px gap and 4px left inset. */
 .fvh-root .pmRowLabel {
-    width: 111px;
+    width: 104px;
     flex: none;
     display: flex;
     align-items: baseline;
-    justify-content: space-between;
-    gap: 7px;
+    gap: 5px;
     min-width: 0;
-    padding-right: 7px;
-    box-sizing: border-box;
+    padding-left: 4px;
 }
 
 .fvh-root .pmHeadCell {
@@ -96,6 +99,12 @@
 
 .fvh-root .pmHeadCell.active {
     box-shadow: 0 0 0 1.6px rgba(255, 122, 51, 0.95);
+}
+
+/* The map currently in play; ringed in white to distinguish it from the orange
+   hover highlight (hover still wins). */
+.fvh-root .pmHeadCell.playing:not(.active) {
+    box-shadow: 0 0 0 1.6px rgba(255, 255, 255, 0.96);
 }
 
 .fvh-root .pmHeadCell.dim,

@@ -1,0 +1,123 @@
+name: Release to stores
+
+# Every push to main auto-increments the patch version (based on the latest
+# vX.Y.Z git tag), stamps it into manifest.json/package.json, builds, commits
+# the bump back to main with a new tag, then submits to both stores.
+#
+# The bump commit is tagged "[skip ci]" so it does NOT retrigger this workflow
+# (otherwise every release would loop forever).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # needed to push the version-bump commit + tag back to main
+
+# Serialize releases so two quick pushes can't both compute the same next
+# version and collide; queue rather than cancel so no push is silently dropped.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need full history + tags to find the latest
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Compute next patch version from latest tag
+        id: ver
+        run: |
+          LATEST=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$LATEST" ]; then
+            # No tags yet: seed from the committed manifest version.
+            BASE=$(node -p "require('./public/manifest.json').version")
+            echo "No existing tag; seeding from manifest version $BASE"
+          else
+            BASE="${LATEST#v}"
+            echo "Latest tag is $LATEST"
+          fi
+          IFS=. read -r MA MI PA <<< "$BASE"
+          NEXT="$MA.$MI.$((PA + 1))"
+          echo "Next version: $NEXT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+
+      - name: Stamp version into manifest + package.json
+        run: node scripts/set-version.mjs "${{ steps.ver.outputs.version }}"
+
+      - run: npm run build
+
+      - name: Zip dist
+        run: cd dist && zip -r ../extension.zip . && cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: |
+            extension.zip
+            dist
+
+      # Only after a successful build do we record the new version: commit the
+      # stamped manifest/package back to main and create the matching tag.
+      - name: Commit version bump and tag
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/manifest.json package.json
+          git commit -m "Release v$VERSION [skip ci]"
+          git tag "v$VERSION"
+          git push origin HEAD:main
+          git push origin "v$VERSION"
+
+  chrome:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension
+
+      - name: Upload + publish to Chrome Web Store
+        run: |
+          npx --yes chrome-webstore-upload-cli@3 upload \
+            --source extension.zip \
+            --auto-publish
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+
+  firefox:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension
+
+      # web-ext signs and submits to the AMO "listed" channel (the public store).
+      # It polls AMO's automated review and exits non-zero if validation fails.
+      - name: Sign + submit to Firefox AMO
+        run: |
+          npx --yes web-ext@latest sign \
+            --channel=listed \
+            --source-dir=dist \
+            --api-key="$AMO_JWT_ISSUER" \
+            --api-secret="$AMO_JWT_SECRET"
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
