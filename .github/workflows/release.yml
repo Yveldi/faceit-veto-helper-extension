@@ -83,18 +83,21 @@ jobs:
       - name: Zip dist
         run: cd dist && zip -r ../extension.zip . && cd ..
 
-      # Only after a successful build do we record the new version: commit the
-      # stamped manifest/package back to main and create the matching tag.
-      - name: Commit version bump and tag
+      # Record the new version as a TAG ONLY - never a commit on main. We make a
+      # local commit purely so the version bump is captured in the tagged tree
+      # (and in the source archive below), then push only the tag. Pushing a tag
+      # uploads the commit object it points to without moving main, so there is
+      # nothing for the developer to pull and no merge-commit loop. Tag pushes
+      # also don't match this workflow's `push: branches` trigger, so no re-run.
+      - name: Tag version bump (no commit to main)
         if: github.event_name == 'push'
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/manifest.json package.json
-          git commit -m "Release v$VERSION [skip ci]"
+          git commit -m "Release v$VERSION"
           git tag "v$VERSION"
-          git push origin HEAD:main
           git push origin "v$VERSION"
 
       # AMO requires human-readable source for bundled/minified extensions.
@@ -132,6 +135,7 @@ jobs:
             --source extension.zip
         env:
           EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
           CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
