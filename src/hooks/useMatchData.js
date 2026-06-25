@@ -8,6 +8,16 @@ import {
 } from "../utils";
 import { computePlayerWinrate } from "../stats";
 
+// In a single-map / no-veto lobby the decided map lands in the payload a moment
+// AFTER the room opens (FACEIT only populates it past the accept step), and there
+// is no veto panel for useVetoProgress to observe (no bannable rows). Since
+// match/v2 is fetched only once per match, playedMap would otherwise stay null
+// until a manual refresh. So when the map isn't decided yet AND the pool isn't a
+// real multi-map veto (which useVetoProgress narrows live), re-fetch the payload a
+// few times until the decided map appears.
+const PLAYED_MAP_REFETCH_MAX = 6;
+const PLAYED_MAP_REFETCH_MS = 2000;
+
 // --- small fetch helpers (all through fetchWithRetry — the rate limiter) ----
 
 async function fetchMatchPayload(matchId, signal) {
@@ -15,6 +25,43 @@ async function fetchMatchPayload(matchId, signal) {
     signal,
   });
   return (await res.json()).payload;
+}
+
+function payloadSources(payload) {
+  return {
+    fromMaps: payload.maps ?? [],
+    fromTree: payload.matchCustom?.tree?.map?.values?.value ?? [],
+    // The map(s) the veto has settled on. For a BO1 this is the single decided
+    // map once the veto finishes (empty while it's still ongoing).
+    pick: payload.voting?.map?.pick ?? [],
+  };
+}
+
+// Whether the decided map is already knowable from the payload (mirrors the
+// `playedMap` derivation below).
+function playedMapResolved(sources) {
+  return (sources.pick?.length ?? 0) === 1 || (sources.fromMaps?.length ?? 0) === 1;
+}
+
+// A real multi-map veto: more than one bannable candidate, so the played map is
+// decided by the live veto (useVetoProgress), not by re-fetching the payload.
+function isMultiMapVeto(sources) {
+  const candidates =
+    (sources.fromTree?.length ?? 0) >= (sources.fromMaps?.length ?? 0)
+      ? sources.fromTree
+      : sources.fromMaps;
+  return (candidates?.length ?? 0) >= 2;
+}
+
+// Wait, honoring the abort signal so navigating away cancels promptly.
+function delay(ms, signal) {
+  return new Promise((resolve) => {
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(id);
+      resolve();
+    });
+  });
 }
 
 // --- pure helpers -----------------------------------------------------------
@@ -121,13 +168,7 @@ export default function useMatchData(
         const payload = await fetchMatchPayload(matchId, signal);
         if (signal.aborted) return;
 
-        const sources = {
-          fromMaps: payload.maps ?? [],
-          fromTree: payload.matchCustom?.tree?.map?.values?.value ?? [],
-          // The map(s) the veto has settled on. For a BO1 this is the single
-          // decided map once the veto finishes (empty while it's still ongoing).
-          pick: payload.voting?.map?.pick ?? [],
-        };
+        let sources = payloadSources(payload);
         const rawTeams = Object.values(payload.teams);
 
         // Phase "maps": reveal the pool + a nickname-only skeleton immediately.
@@ -165,6 +206,25 @@ export default function useMatchData(
             });
             setLoadedCount((c) => c + 1);
           }
+        }
+
+        // Catch a late-resolving played map (single-map / no-veto lobbies — see
+        // the note by PLAYED_MAP_REFETCH_MAX). Skipped for real multi-map vetos,
+        // which useVetoProgress narrows live from the DOM.
+        for (
+          let attempt = 0;
+          attempt < PLAYED_MAP_REFETCH_MAX &&
+          !signal.aborted &&
+          !playedMapResolved(sources) &&
+          !isMultiMapVeto(sources);
+          attempt++
+        ) {
+          await delay(PLAYED_MAP_REFETCH_MS, signal);
+          if (signal.aborted) return;
+          const next = await fetchMatchPayload(matchId, signal);
+          if (signal.aborted) return;
+          sources = payloadSources(next);
+          setMapData(sources);
         }
       } catch (err) {
         if (!signal.aborted) {
