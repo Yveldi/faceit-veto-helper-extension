@@ -86,16 +86,118 @@ function reserveSlot(untilTs) {
   rateLimitChannel?.postMessage({ earliestNextFetch: earliestNextFetch });
 }
 
-async function acquireFetchSlot() {
+// Up to this much extra is added on top of MIN_GAP_MS per slot so our requests
+// don't fire on a perfectly periodic 400ms beat. A fixed cadence can stay phase-
+// locked with the page's own polling or another extension's, re-colliding every
+// cycle; the jitter spreads our calls across the gaps between theirs.
+const GAP_JITTER_MS = 150;
+
+// --- congestion gate --------------------------------------------------------
+//
+// The 429s we actually see don't come from OUR pace (the queue above already
+// keeps us slow). They come from the page itself: on load — and again whenever
+// it refreshes a section — faceit.com fires a storm of its own /api calls, and
+// the rate limit is account-wide, so the budget is gone before our first stats
+// request even leaves. Retrying faster just dives back into the same storm.
+//
+// So before releasing a slot we watch the PAGE's API traffic (via Resource
+// Timing) and hold our request while that traffic is heavy, slipping in only
+// once it quiets. This is adaptive: it covers the initial load storm AND the
+// later mid-session bursts, without a blanket startup delay that would slow the
+// common quiet case. A hard cap guarantees we never wait forever (the page
+// polls some endpoints indefinitely, so "perfectly idle" may never arrive).
+const ACTIVITY_WINDOW_MS = 1000; // look back this far when judging "busy"
+const BUSY_THRESHOLD = 6; // > this many page API calls in the window = storm
+const CONGESTION_POLL_MS = 200; // re-check cadence while waiting it out
+const MAX_CONGESTION_WAIT_MS = 8000; // never defer a single request beyond this
+
+// responseEnd timestamps (performance.now clock) of recent same-origin API
+// requests the PAGE made — our own fetches land here too, but we're serialized
+// to one in flight so they barely move the count against BUSY_THRESHOLD.
+const recentApiActivity = [];
+let apiActivityObserver = null;
+
+function nowMs() {
+  return typeof performance !== "undefined" && performance.now
+    ? performance.now()
+    : Date.now();
+}
+
+function trimActivity() {
+  const cutoff = nowMs() - ACTIVITY_WINDOW_MS;
+  while (recentApiActivity.length && recentApiActivity[0] < cutoff) {
+    recentApiActivity.shift();
+  }
+}
+
+function startApiActivityMonitor() {
+  if (apiActivityObserver || typeof PerformanceObserver === "undefined") return;
+  try {
+    apiActivityObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        // Only count fetch/XHR to the FACEIT API — images, fonts and CDN assets
+        // don't consume the API rate budget, so they shouldn't gate us.
+        if (
+          (entry.initiatorType === "fetch" ||
+            entry.initiatorType === "xmlhttprequest") &&
+          entry.name.includes("/api/")
+        ) {
+          recentApiActivity.push(entry.responseEnd || entry.startTime);
+        }
+      }
+      trimActivity();
+    });
+    // `buffered: true` replays entries from before we subscribed, so we already
+    // see the load storm that began the instant the page started.
+    apiActivityObserver.observe({ type: "resource", buffered: true });
+  } catch {
+    apiActivityObserver = null;
+  }
+}
+
+function pageApiCallsInWindow() {
+  trimActivity();
+  return recentApiActivity.length;
+}
+
+// Block until the page's API traffic drops below the storm threshold, or the cap
+// elapses. Honors the abort signal so navigating away doesn't strand us here.
+async function waitForApiQuiet(signal) {
+  startApiActivityMonitor();
+  const start = nowMs();
+  while (pageApiCallsInWindow() > BUSY_THRESHOLD) {
+    if (signal?.aborted) return;
+    if (nowMs() - start >= MAX_CONGESTION_WAIT_MS) return;
+    await sleep(CONGESTION_POLL_MS / 1000);
+  }
+}
+
+async function acquireFetchSlot(signal) {
   const myTurn = queueChain.then(async () => {
     while (Date.now() < earliestNextFetch) {
       const waitMs = earliestNextFetch - Date.now();
       await sleep(waitMs / 1000);
     }
-    reserveSlot(Date.now() + MIN_GAP_MS);
+    // Hold the slot open until the page isn't mid-storm. Done INSIDE the queue
+    // so only one request probes congestion at a time and the others stay
+    // serialized behind it.
+    await waitForApiQuiet(signal);
+    reserveSlot(Date.now() + MIN_GAP_MS + Math.random() * GAP_JITTER_MS);
   });
   queueChain = myTurn.catch(() => {});
   await myTurn;
+}
+
+// Parse a Retry-After header. RFC 7231 allows either a delta-seconds integer or
+// an HTTP-date; return the delay in milliseconds (>= 0), or null if absent/
+// unparseable so the caller can fall back to its own backoff.
+function parseRetryAfter(headerValue) {
+  if (!headerValue) return null;
+  const seconds = Number(headerValue);
+  if (Number.isFinite(seconds)) return seconds > 0 ? seconds * 1000 : 0;
+  const dateMs = Date.parse(headerValue);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
 }
 
 export async function fetchWithRetry(url, { signal } = {}) {
@@ -104,12 +206,22 @@ export async function fetchWithRetry(url, { signal } = {}) {
   const maxWaitTime = 20;
   const retryCodes = [429, 503, 502, 504];
 
+  // Most 429s we see are transient collisions: our stats fetch lands in the
+  // same instant as the page's own API calls or another extension's, the limit
+  // trips for a fraction of a second, then clears. For those, a quick jittered
+  // retry recovers far faster than the heavy account-wide cooldown — which we
+  // reserve for a 429 that PERSISTS (a real sustained limit). So we count
+  // consecutive 429s and only escalate after the transient retries fail.
+  const TRANSIENT_429_RETRIES = 2;
+  const TRANSIENT_429_BASE_MS = 300;
+  let consecutive429 = 0;
+
   for (let i = 0; i < maxRetries; i++) {
     // Optional cancellation. Bail before taking a queue slot and again after,
     // so an aborted request never fires and frees the queue immediately. Timing
     // for normal (no-signal) callers is unchanged.
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    await acquireFetchSlot();
+    await acquireFetchSlot(signal);
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     const response = await fetch(url, { signal });
@@ -121,16 +233,39 @@ export async function fetchWithRetry(url, { signal } = {}) {
     if (!retryCodes.includes(response.status)) {
       throw new Error(`Request failed. Code: ${response.status}`);
     }
+
     if (response.status === 429) {
-      const retryAfter = Number(response.headers.get("Retry-After"));
-      const cooldownMs =
-        Number.isFinite(retryAfter) && retryAfter > 0
-          ? retryAfter * 1000
-          : RATE_LIMIT_COOLDOWN_MS;
-      // Broadcast the cooldown so every other tab backs off too — a 429 is
-      // account-wide, so all tabs must wait, not just the one that got it.
-      reserveSlot(Date.now() + cooldownMs);
+      consecutive429++;
+      const retryAfterMs = parseRetryAfter(response.headers.get("Retry-After"));
+
+      // FACEIT told us exactly how long to wait — always honour that, account-
+      // wide, regardless of how transient it looked.
+      if (retryAfterMs !== null) {
+        reserveSlot(Date.now() + retryAfterMs);
+        await sleep(retryAfterMs / 1000);
+        continue;
+      }
+
+      // No Retry-After. Treat the first couple as transient: short jittered
+      // backoff, and DON'T broadcast the account-wide cooldown (that would
+      // stall every other tab for 10s over a sub-second blip). The jitter also
+      // de-syncs our retry from whatever else is hammering the API so we don't
+      // just collide again.
+      if (consecutive429 <= TRANSIENT_429_RETRIES) {
+        const jitter = 1 + Math.random();
+        await sleep((TRANSIENT_429_BASE_MS * 2 ** (consecutive429 - 1) * jitter) / 1000);
+        continue;
+      }
+
+      // Still rate-limited after the quick retries — this is a real sustained
+      // limit. Now apply the heavy account-wide cooldown so all tabs back off.
+      reserveSlot(Date.now() + RATE_LIMIT_COOLDOWN_MS);
+      await sleep(RATE_LIMIT_COOLDOWN_MS / 1000);
+      continue;
     }
+
+    // Non-429 retryable code (5xx): the original exponential backoff.
+    consecutive429 = 0;
     const backoff = Math.min(baseWaitTime * 2 ** i, maxWaitTime);
     await sleep(backoff);
   }
