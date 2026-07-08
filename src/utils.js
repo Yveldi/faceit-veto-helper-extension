@@ -223,7 +223,7 @@ function parseRetryAfter(headerValue) {
 // has one-second granularity and "1" can mean "any moment up to a second from
 // now", so pad it slightly so we don't retry a hair early and burn a slot on
 // another 429.
-const RATE_LIMIT_HEADER_PAD_MS = 250;
+const RATE_LIMIT_HEADER_PAD_MS = 10;
 
 function rateLimitWaitMs(response) {
   const headers = response.headers;
@@ -232,6 +232,48 @@ function rateLimitWaitMs(response) {
     parseRetryAfter(headers.get("ratelimit-retry-after")) ??
     parseRetryAfter(headers.get("ratelimit-reset"));
   return fromHeader === null ? null : fromHeader + RATE_LIMIT_HEADER_PAD_MS;
+}
+
+// FACEIT's stats limiter is a sliding window and announces its policy on every
+// response: `ratelimit-limit: 6, 6;w=20` means 6 requests per 20s window
+// (observed on player-match-rounds). Our 400ms queue burns that budget in
+// ~2.5s; after that a slot only frees as an old request ages out of the
+// window — one every window/limit seconds (~3.3s here). Firing sooner probes
+// for the slot with a wasted 429 (the 200/429/200/429 alternation); waiting
+// for the full `ratelimit-reset` clears everything but stalls the load for the
+// whole window. So we read the budget headers on EVERY response, 200s
+// included: when one reports the window spent (`ratelimit-remaining: 0`), we
+// push the shared cooldown clock forward by window/limit — the exact
+// sustainable drip rate — so the remaining requests stream without a single
+// failed probe. Burst-then-drip is optimal here: the first `limit` requests go
+// at full queue speed, the rest at the drip.
+const FALLBACK_SLOT_MS = 3500;
+// The drip interval the limiter last taught us (policy header or a 429's
+// ratelimit-retry-after), for responses that omit their own.
+let lastSlotIntervalMs = null;
+
+// Parse the IETF draft `ratelimit-limit` policy, e.g. "6, 6;w=20" → one slot
+// per 20/6 s. Null when the policy/window isn't advertised.
+function policySlotMs(headerValue) {
+  const m = /(\d+)\s*;\s*w=(\d+)/.exec(headerValue ?? "");
+  if (!m) return null;
+  const limit = Number(m[1]);
+  const windowSec = Number(m[2]);
+  if (!(limit > 0) || !(windowSec > 0)) return null;
+  return (windowSec * 1000) / limit;
+}
+
+function noteRateLimitBudget(response) {
+  const headers = response.headers;
+  const remaining = Number(headers.get("ratelimit-remaining"));
+  if (!Number.isFinite(remaining) || remaining > 0) return;
+  const slotMs =
+    policySlotMs(headers.get("ratelimit-limit")) ??
+    parseRetryAfter(headers.get("ratelimit-retry-after")) ??
+    lastSlotIntervalMs ??
+    FALLBACK_SLOT_MS;
+  lastSlotIntervalMs = slotMs;
+  reserveSlot(Date.now() + slotMs + RATE_LIMIT_HEADER_PAD_MS);
 }
 
 export async function fetchWithRetry(url, { signal } = {}) {
@@ -259,6 +301,7 @@ export async function fetchWithRetry(url, { signal } = {}) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     const response = await fetch(url, { signal });
+    noteRateLimitBudget(response);
 
     if (response.ok) return response;
     if (response.status === 404) {
@@ -273,8 +316,11 @@ export async function fetchWithRetry(url, { signal } = {}) {
       const retryAfterMs = rateLimitWaitMs(response);
 
       // FACEIT told us exactly how long to wait — always honour that, account-
-      // wide, regardless of how transient it looked.
+      // wide, regardless of how transient it looked. Also remember it as the
+      // slot interval, so noteRateLimitBudget can pace budget-exhausted 200s at
+      // the same drip rate without needing another 429 to measure it.
       if (retryAfterMs !== null) {
+        lastSlotIntervalMs = retryAfterMs;
         reserveSlot(Date.now() + retryAfterMs);
         await sleep(retryAfterMs / 1000);
         continue;
