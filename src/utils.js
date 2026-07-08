@@ -216,6 +216,24 @@ function parseRetryAfter(headerValue) {
   return null;
 }
 
+// FACEIT doesn't send the standard Retry-After on its 429s; it sends the IETF
+// draft RateLimit headers instead: `ratelimit-retry-after` (delta-seconds until
+// a slot frees) and `ratelimit-reset` (delta-seconds until the whole window
+// resets). Prefer the shortest wait FACEIT gives us, in that order. The header
+// has one-second granularity and "1" can mean "any moment up to a second from
+// now", so pad it slightly so we don't retry a hair early and burn a slot on
+// another 429.
+const RATE_LIMIT_HEADER_PAD_MS = 250;
+
+function rateLimitWaitMs(response) {
+  const headers = response.headers;
+  const fromHeader =
+    parseRetryAfter(headers.get("Retry-After")) ??
+    parseRetryAfter(headers.get("ratelimit-retry-after")) ??
+    parseRetryAfter(headers.get("ratelimit-reset"));
+  return fromHeader === null ? null : fromHeader + RATE_LIMIT_HEADER_PAD_MS;
+}
+
 export async function fetchWithRetry(url, { signal } = {}) {
   const maxRetries = 10;
   const baseWaitTime = 4;
@@ -252,7 +270,7 @@ export async function fetchWithRetry(url, { signal } = {}) {
 
     if (response.status === 429) {
       consecutive429++;
-      const retryAfterMs = parseRetryAfter(response.headers.get("Retry-After"));
+      const retryAfterMs = rateLimitWaitMs(response);
 
       // FACEIT told us exactly how long to wait — always honour that, account-
       // wide, regardless of how transient it looked.
@@ -269,7 +287,8 @@ export async function fetchWithRetry(url, { signal } = {}) {
       // just collide again.
       if (consecutive429 <= TRANSIENT_429_RETRIES) {
         const jitter = 1 + Math.random();
-        await sleep((TRANSIENT_429_BASE_MS * 2 ** (consecutive429 - 1) * jitter) / 1000);
+        const waitMs = TRANSIENT_429_BASE_MS * 2 ** (consecutive429 - 1) * jitter;
+        await sleep(waitMs / 1000);
         continue;
       }
 
