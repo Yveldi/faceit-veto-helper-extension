@@ -189,6 +189,9 @@ export default function MapWinProbabilities({
       showPct: showVals,
       pct,
       color: colored ? winColor(norm) : "transparent",
+      // Aurora bottom-right bloom hue for this map's breakdown popover: tracks
+      // the win% ramp so the glow matches the card's colour.
+      brRgb: colored ? `${r},${g},${b}` : null,
       wash: colored
         ? `linear-gradient(90deg, rgba(${r},${g},${b},0) 56%, rgba(${r},${g},${b},.30) 100%)`
         : "none",
@@ -295,7 +298,12 @@ export default function MapWinProbabilities({
               ? (ref) => (
                   // gap clears the panel's right padding + border so the popover
                   // sits beside the window, not on top of it
-                  <Tooltip anchorRef={ref} placement="side" gap={26}>
+                  <Tooltip
+                    anchorRef={ref}
+                    placement="side"
+                    gap={26}
+                    brRgb={d.brRgb}
+                  >
                     <MapBreakdownPopover
                       mainTeam={breakdownMain}
                       otherTeam={breakdownOther}

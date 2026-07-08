@@ -109,7 +109,18 @@ const GAP_JITTER_MS = 150;
 const ACTIVITY_WINDOW_MS = 1000; // look back this far when judging "busy"
 const BUSY_THRESHOLD = 6; // > this many page API calls in the window = storm
 const CONGESTION_POLL_MS = 200; // re-check cadence while waiting it out
-const MAX_CONGESTION_WAIT_MS = 8000; // never defer a single request beyond this
+const MAX_CONGESTION_WAIT_MS = 2500; // never defer a single request beyond this
+
+// Only the LEADING EDGE of a burst probes congestion. faceit.com's SPA polls
+// its own /api endpoints continuously while the tab is focused, so the page is
+// almost never "quiet" — gating every request on that would hold each one to the
+// cap and effectively stall the overlay (it only recovered when the popup blurred
+// the page and faceit paused its polling). Our queue already spaces requests
+// ~400ms apart, so once we've waited out the initial load storm we stream freely:
+// we re-probe congestion only when this request follows an idle gap (a fresh
+// burst), not for the back-to-back requests of a single match load.
+const FRESH_BURST_IDLE_MS = 1500;
+let lastSlotAt = 0;
 
 // responseEnd timestamps (performance.now clock) of recent same-origin API
 // requests the PAGE made — our own fetches land here too, but we're serialized
@@ -178,10 +189,15 @@ async function acquireFetchSlot(signal) {
       const waitMs = earliestNextFetch - Date.now();
       await sleep(waitMs / 1000);
     }
-    // Hold the slot open until the page isn't mid-storm. Done INSIDE the queue
-    // so only one request probes congestion at a time and the others stay
-    // serialized behind it.
-    await waitForApiQuiet(signal);
+    // Hold the slot open until the page isn't mid-storm — but ONLY on the
+    // leading edge of a burst (this request follows an idle gap). Mid-load,
+    // back-to-back requests skip the probe so a continuously-polling page can't
+    // stall the whole load. Done INSIDE the queue so only one request probes at
+    // a time and the others stay serialized behind it.
+    if (Date.now() - lastSlotAt > FRESH_BURST_IDLE_MS) {
+      await waitForApiQuiet(signal);
+    }
+    lastSlotAt = Date.now();
     reserveSlot(Date.now() + MIN_GAP_MS + Math.random() * GAP_JITTER_MS);
   });
   queueChain = myTurn.catch(() => {});
