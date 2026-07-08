@@ -132,6 +132,45 @@ function rateLimitWaitMs(response) {
   return fromHeader === null ? null : fromHeader + RATE_LIMIT_HEADER_PAD_MS;
 }
 
+// FACEIT's limiter is a leaky bucket: the `ratelimit-limit` header reads
+// `6, 6;w=20` — 6 requests per 20s window, refilled one slot every w/limit
+// seconds (~3.3s here). Crucially it reports `ratelimit-remaining: 0` on the
+// SUCCESSFUL response that consumes the last slot. That zero is the limiter
+// telling us the very next request will 429. Parse the limit/remaining pair so
+// we can honour that warning proactively instead of firing blind into a
+// guaranteed 429-retry-200 sawtooth. Returns { remaining, dripMs } or null when
+// the headers are absent/unparseable.
+function parseRateLimit(response) {
+  const headers = response.headers;
+  const remaining = Number(headers.get("ratelimit-remaining"));
+  const limitHeader = headers.get("ratelimit-limit"); // e.g. "6, 6;w=20"
+  if (!Number.isFinite(remaining) || !limitHeader) return null;
+
+  // Limit count is the leading integer; window seconds come from `w=NN`.
+  const limit = Number(limitHeader.trim().split(/[,;\s]/)[0]);
+  const windowSec = Number(limitHeader.match(/w=(\d+)/)?.[1]);
+  if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(windowSec)) {
+    return null;
+  }
+
+  // One slot refills every window/limit seconds. Pad so we retry a hair late
+  // rather than a hair early and burn the fresh slot on another 429.
+  const dripMs = (windowSec / limit) * 1000 + RATE_LIMIT_HEADER_PAD_MS;
+  return { remaining, dripMs };
+}
+
+// After a request that DIDN'T 429, pace the queue off the headers it returned.
+// When the limiter says no slots remain, hold the next fetch back by one drip
+// interval so it lands on a refilled slot instead of a 429. When slots remain,
+// do nothing — the queue is free to fire. Broadcast the floor so other tabs
+// back off too (the limit is account-wide).
+function paceFromResponse(response) {
+  const info = parseRateLimit(response);
+  if (info && info.remaining <= 0) {
+    reserveSlot(Date.now() + info.dripMs);
+  }
+}
+
 export async function fetchWithRetry(url, { signal } = {}) {
   const maxRetries = 10;
   const baseWaitTime = 4;
@@ -158,7 +197,13 @@ export async function fetchWithRetry(url, { signal } = {}) {
 
     const response = await fetch(url, { signal });
 
-    if (response.ok) return response;
+    if (response.ok) {
+      // Pace the NEXT request off this success's headers: FACEIT reports
+      // remaining=0 on the response that takes the last slot, so honour that
+      // instead of firing straight into a guaranteed 429.
+      paceFromResponse(response);
+      return response;
+    }
     if (response.status === 404) {
       return response;
     }
