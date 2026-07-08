@@ -11,6 +11,7 @@ export default function Tooltip({
   anchorRef,
   placement = "auto",
   gap = 8,
+  brRgb,
   children,
 }) {
   const tipRef = useRef(null);
@@ -58,7 +59,10 @@ export default function Tooltip({
         ref={tipRef}
         className="fvh-tooltip"
         role="tooltip"
-        style={pos ? { top: pos.top, left: pos.left } : { opacity: 0 }}
+        style={{
+          ...(pos ? { top: pos.top, left: pos.left } : { opacity: 0 }),
+          ...(brRgb ? { "--fvh-br": brRgb } : null),
+        }}
       >
         {children}
       </div>

@@ -1,4 +1,10 @@
-import { cellStyle, mapCode, eloToLevel, levelColor } from "../../colors";
+import {
+  cellStyle,
+  mapCode,
+  eloToLevel,
+  levelColor,
+  ratingRgb,
+} from "../../colors";
 import { prettifyMapName, defaultMapThumbnail } from "../../utils";
 import Hoverable from "../Tooltip/Hoverable";
 import Tooltip from "../Tooltip/Tooltip";
@@ -154,11 +160,14 @@ export default function PlayerMatrix({
                                 onColLeave();
                               }}
                               renderTooltips={(ref) => (
-                                <Tooltip anchorRef={ref} placement="auto">
+                                <Tooltip
+                                  anchorRef={ref}
+                                  placement="auto"
+                                  brRgb={ratingRgb(p.stats[map]?.[0] ?? null)}
+                                >
                                   <CellStatsPopover
                                     player={p.profile.nickname}
                                     map={map}
-                                    teamColor={TEAM_COLORS[ti]}
                                     stat={p.stats[map]}
                                   />
                                 </Tooltip>

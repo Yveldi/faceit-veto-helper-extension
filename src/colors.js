@@ -49,6 +49,17 @@ export function ratingColor(rating) {
   return "#ff8585";
 }
 
+// Aurora bottom-right bloom hue for a FACEIT rating, as a bare "r,g,b" triple
+// (for use inside rgba(...)). Same thresholds as ratingColor, plus a neutral
+// gray when there's no rating. Fed to the popover's --fvh-br variable so the
+// aurora glow carries the player's performance.
+export function ratingRgb(rating) {
+  if (rating == null) return "130,136,146";
+  if (rating >= 1.1) return "111,224,154";
+  if (rating >= 0.95) return "230,193,74";
+  return "255,133,133";
+}
+
 // Short uppercase code for a map id, e.g. "de_mirage" -> "MIR". Pool/language
 // independent (derived from the prettified name's first letters).
 export function mapCode(prettyName) {

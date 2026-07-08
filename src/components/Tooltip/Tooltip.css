@@ -1,13 +1,41 @@
+/* Aurora surface: warm orange bloom top-left (brand) + a semantic bloom
+   bottom-right whose hue is set per-popover via --fvh-br (rating or win%). The
+   glow lives in ::before so the diagonal aurora background + both radial blooms
+   layer without extra markup; content sits above it via `.fvh-tooltip > *`. */
 .fvh-root .fvh-tooltip {
     position: fixed;
     z-index: 2147483647;
-    padding: 8px 10px;
-    background-color: #0d0e13;
-    border: solid 1px #23252f;
-    border-radius: 8px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    padding: 10px 11px;
+    background: linear-gradient(158deg, #1d1922 0%, #15171d 55%, #121a18 100%);
+    border: 1px solid rgba(255, 106, 31, 0.24);
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6),
+        0 0 24px -8px rgba(255, 106, 31, 0.26),
+        0 0 24px -10px rgba(var(--fvh-br, 130, 136, 146), 0.28);
+    overflow: hidden;
     white-space: nowrap;
     pointer-events: none;
+}
+
+.fvh-root .fvh-tooltip::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+            70% 80% at 8% -6%,
+            rgba(255, 106, 31, 0.2),
+            transparent 55%
+        ),
+        radial-gradient(
+            72% 82% at 108% 115%,
+            rgba(var(--fvh-br, 130, 136, 146), 0.2),
+            transparent 55%
+        );
+    pointer-events: none;
+}
+
+.fvh-root .fvh-tooltip > * {
+    position: relative;
 }
 
 /* Stage 2 breakdown popover: both teams' players + their score on the hovered
@@ -131,35 +159,72 @@
     white-space: normal;
 }
 
-.fvh-root .fvh-cellpop-head {
+/* Single-line joined-chip breadcrumb: [ ●dot player ] › [ Map ]. The player is
+   the emphasized element (soft-orange tint chip); the map is the quiet neutral
+   chip. The relationship is shown spatially, not with an "on" word. */
+.fvh-root .fvh-cellpop-crumb {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 2px;
+    /* stretch so the connector and both chips share one height (the connector's
+       fixed height would otherwise stand taller than the content-sized chips) */
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 9px;
 }
 
-.fvh-root .fvh-cellpop-head .dot {
-    width: 7px;
-    height: 7px;
+.fvh-root .fvh-cellpop-crumb .playerChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    background: rgba(255, 106, 31, 0.08);
+    border: 1px solid rgba(255, 106, 31, 0.22);
+    border-right: none;
+    border-radius: 6px 0 0 6px;
+    padding: 4px 9px;
+}
+
+.fvh-root .fvh-cellpop-crumb .dot {
+    width: 6px;
+    height: 6px;
     border-radius: 2px;
     flex: none;
+    background: #ff6a1f;
 }
 
-.fvh-root .fvh-cellpop-head .who {
-    font-size: 8px;
+.fvh-root .fvh-cellpop-crumb .name {
+    font-size: 11px;
     font-weight: 800;
-    letter-spacing: 0.1em;
-    color: #6b7280;
+    color: #e6a37a;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
-.fvh-root .fvh-cellpop-map {
-    font-size: 13px;
-    font-weight: 800;
-    color: #f1f2f4;
-    margin-bottom: 9px;
+.fvh-root .fvh-cellpop-crumb .sep {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 18px;
+    background: #22252c;
+    border-top: 1px solid rgba(52, 56, 65, 0.5);
+    border-bottom: 1px solid rgba(52, 56, 65, 0.5);
+    color: #565a63;
+    font-size: 11px;
+}
+
+.fvh-root .fvh-cellpop-crumb .mapChip {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    background: #22252c;
+    border: 1px solid rgba(52, 56, 65, 0.5);
+    border-radius: 0 6px 6px 0;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #c7ccd4;
+    white-space: nowrap;
     text-transform: capitalize;
 }
 
