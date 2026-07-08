@@ -51,11 +51,10 @@ export function prettifyMapName(mapName) {
 
 let queueChain = Promise.resolve();
 let earliestNextFetch = 0;
-const MIN_GAP_MS = 400;
 const RATE_LIMIT_COOLDOWN_MS = 10_000;
 
 // Cross-tab rate-limit coordination. FACEIT applies its limit per account, not
-// per tab, so two open faceit.com tabs each running their own 400ms queue would
+// per tab, so two open faceit.com tabs each running their own queue would
 // fire at twice the safe rate. We share only the cooldown CLOCK between tabs
 // (not the requests — those stay in each tab's content script so they keep the
 // same-origin cookie auth): whenever any tab reserves a slot or hits a 429, it
@@ -86,119 +85,18 @@ function reserveSlot(untilTs) {
   rateLimitChannel?.postMessage({ earliestNextFetch: earliestNextFetch });
 }
 
-// Up to this much extra is added on top of MIN_GAP_MS per slot so our requests
-// don't fire on a perfectly periodic 400ms beat. A fixed cadence can stay phase-
-// locked with the page's own polling or another extension's, re-colliding every
-// cycle; the jitter spreads our calls across the gaps between theirs.
-const GAP_JITTER_MS = 150;
-
-// --- congestion gate --------------------------------------------------------
-//
-// The 429s we actually see don't come from OUR pace (the queue above already
-// keeps us slow). They come from the page itself: on load — and again whenever
-// it refreshes a section — faceit.com fires a storm of its own /api calls, and
-// the rate limit is account-wide, so the budget is gone before our first stats
-// request even leaves. Retrying faster just dives back into the same storm.
-//
-// So before releasing a slot we watch the PAGE's API traffic (via Resource
-// Timing) and hold our request while that traffic is heavy, slipping in only
-// once it quiets. This is adaptive: it covers the initial load storm AND the
-// later mid-session bursts, without a blanket startup delay that would slow the
-// common quiet case. A hard cap guarantees we never wait forever (the page
-// polls some endpoints indefinitely, so "perfectly idle" may never arrive).
-const ACTIVITY_WINDOW_MS = 1000; // look back this far when judging "busy"
-const BUSY_THRESHOLD = 6; // > this many page API calls in the window = storm
-const CONGESTION_POLL_MS = 200; // re-check cadence while waiting it out
-const MAX_CONGESTION_WAIT_MS = 2500; // never defer a single request beyond this
-
-// Only the LEADING EDGE of a burst probes congestion. faceit.com's SPA polls
-// its own /api endpoints continuously while the tab is focused, so the page is
-// almost never "quiet" — gating every request on that would hold each one to the
-// cap and effectively stall the overlay (it only recovered when the popup blurred
-// the page and faceit paused its polling). Our queue already spaces requests
-// ~400ms apart, so once we've waited out the initial load storm we stream freely:
-// we re-probe congestion only when this request follows an idle gap (a fresh
-// burst), not for the back-to-back requests of a single match load.
-const FRESH_BURST_IDLE_MS = 1500;
-let lastSlotAt = 0;
-
-// responseEnd timestamps (performance.now clock) of recent same-origin API
-// requests the PAGE made — our own fetches land here too, but we're serialized
-// to one in flight so they barely move the count against BUSY_THRESHOLD.
-const recentApiActivity = [];
-let apiActivityObserver = null;
-
-function nowMs() {
-  return typeof performance !== "undefined" && performance.now
-    ? performance.now()
-    : Date.now();
-}
-
-function trimActivity() {
-  const cutoff = nowMs() - ACTIVITY_WINDOW_MS;
-  while (recentApiActivity.length && recentApiActivity[0] < cutoff) {
-    recentApiActivity.shift();
-  }
-}
-
-function startApiActivityMonitor() {
-  if (apiActivityObserver || typeof PerformanceObserver === "undefined") return;
-  try {
-    apiActivityObserver = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        // Only count fetch/XHR to the FACEIT API — images, fonts and CDN assets
-        // don't consume the API rate budget, so they shouldn't gate us.
-        if (
-          (entry.initiatorType === "fetch" ||
-            entry.initiatorType === "xmlhttprequest") &&
-          entry.name.includes("/api/")
-        ) {
-          recentApiActivity.push(entry.responseEnd || entry.startTime);
-        }
-      }
-      trimActivity();
-    });
-    // `buffered: true` replays entries from before we subscribed, so we already
-    // see the load storm that began the instant the page started.
-    apiActivityObserver.observe({ type: "resource", buffered: true });
-  } catch {
-    apiActivityObserver = null;
-  }
-}
-
-function pageApiCallsInWindow() {
-  trimActivity();
-  return recentApiActivity.length;
-}
-
-// Block until the page's API traffic drops below the storm threshold, or the cap
-// elapses. Honors the abort signal so navigating away doesn't strand us here.
-async function waitForApiQuiet(signal) {
-  startApiActivityMonitor();
-  const start = nowMs();
-  while (pageApiCallsInWindow() > BUSY_THRESHOLD) {
-    if (signal?.aborted) return;
-    if (nowMs() - start >= MAX_CONGESTION_WAIT_MS) return;
-    await sleep(CONGESTION_POLL_MS / 1000);
-  }
-}
-
-async function acquireFetchSlot(signal) {
+// No proactive pacing: requests fire as fast as the serialized queue allows,
+// with nothing held back at the start of a load. The only wait is the one the
+// limiter itself forces on us after the fact — a 429's retry-after (see the
+// 429 branch below), broadcast onto this shared clock. The queue still
+// serializes to one request in flight so that wait, once discovered, holds
+// back the requests behind it instead of them all piling into the same 429.
+async function acquireFetchSlot(_signal) {
   const myTurn = queueChain.then(async () => {
     while (Date.now() < earliestNextFetch) {
       const waitMs = earliestNextFetch - Date.now();
       await sleep(waitMs / 1000);
     }
-    // Hold the slot open until the page isn't mid-storm — but ONLY on the
-    // leading edge of a burst (this request follows an idle gap). Mid-load,
-    // back-to-back requests skip the probe so a continuously-polling page can't
-    // stall the whole load. Done INSIDE the queue so only one request probes at
-    // a time and the others stay serialized behind it.
-    if (Date.now() - lastSlotAt > FRESH_BURST_IDLE_MS) {
-      await waitForApiQuiet(signal);
-    }
-    lastSlotAt = Date.now();
-    reserveSlot(Date.now() + MIN_GAP_MS + Math.random() * GAP_JITTER_MS);
   });
   queueChain = myTurn.catch(() => {});
   await myTurn;
@@ -234,48 +132,6 @@ function rateLimitWaitMs(response) {
   return fromHeader === null ? null : fromHeader + RATE_LIMIT_HEADER_PAD_MS;
 }
 
-// FACEIT's stats limiter is a sliding window and announces its policy on every
-// response: `ratelimit-limit: 6, 6;w=20` means 6 requests per 20s window
-// (observed on player-match-rounds). Our 400ms queue burns that budget in
-// ~2.5s; after that a slot only frees as an old request ages out of the
-// window — one every window/limit seconds (~3.3s here). Firing sooner probes
-// for the slot with a wasted 429 (the 200/429/200/429 alternation); waiting
-// for the full `ratelimit-reset` clears everything but stalls the load for the
-// whole window. So we read the budget headers on EVERY response, 200s
-// included: when one reports the window spent (`ratelimit-remaining: 0`), we
-// push the shared cooldown clock forward by window/limit — the exact
-// sustainable drip rate — so the remaining requests stream without a single
-// failed probe. Burst-then-drip is optimal here: the first `limit` requests go
-// at full queue speed, the rest at the drip.
-const FALLBACK_SLOT_MS = 3500;
-// The drip interval the limiter last taught us (policy header or a 429's
-// ratelimit-retry-after), for responses that omit their own.
-let lastSlotIntervalMs = null;
-
-// Parse the IETF draft `ratelimit-limit` policy, e.g. "6, 6;w=20" → one slot
-// per 20/6 s. Null when the policy/window isn't advertised.
-function policySlotMs(headerValue) {
-  const m = /(\d+)\s*;\s*w=(\d+)/.exec(headerValue ?? "");
-  if (!m) return null;
-  const limit = Number(m[1]);
-  const windowSec = Number(m[2]);
-  if (!(limit > 0) || !(windowSec > 0)) return null;
-  return (windowSec * 1000) / limit;
-}
-
-function noteRateLimitBudget(response) {
-  const headers = response.headers;
-  const remaining = Number(headers.get("ratelimit-remaining"));
-  if (!Number.isFinite(remaining) || remaining > 0) return;
-  const slotMs =
-    policySlotMs(headers.get("ratelimit-limit")) ??
-    parseRetryAfter(headers.get("ratelimit-retry-after")) ??
-    lastSlotIntervalMs ??
-    FALLBACK_SLOT_MS;
-  lastSlotIntervalMs = slotMs;
-  reserveSlot(Date.now() + slotMs + RATE_LIMIT_HEADER_PAD_MS);
-}
-
 export async function fetchWithRetry(url, { signal } = {}) {
   const maxRetries = 10;
   const baseWaitTime = 4;
@@ -301,7 +157,6 @@ export async function fetchWithRetry(url, { signal } = {}) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     const response = await fetch(url, { signal });
-    noteRateLimitBudget(response);
 
     if (response.ok) return response;
     if (response.status === 404) {
@@ -316,11 +171,8 @@ export async function fetchWithRetry(url, { signal } = {}) {
       const retryAfterMs = rateLimitWaitMs(response);
 
       // FACEIT told us exactly how long to wait — always honour that, account-
-      // wide, regardless of how transient it looked. Also remember it as the
-      // slot interval, so noteRateLimitBudget can pace budget-exhausted 200s at
-      // the same drip rate without needing another 429 to measure it.
+      // wide, regardless of how transient it looked.
       if (retryAfterMs !== null) {
-        lastSlotIntervalMs = retryAfterMs;
         reserveSlot(Date.now() + retryAfterMs);
         await sleep(retryAfterMs / 1000);
         continue;
