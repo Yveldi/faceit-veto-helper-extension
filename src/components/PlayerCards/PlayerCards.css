@@ -282,6 +282,20 @@
   color: #5c6068;
   margin-top: 3px;
 }
+/* Per-tile loading shimmer — used ONLY for the RATING tile, which stays hidden
+   behind this until the real FACEIT rating lands (the other tiles are final from
+   wave 1). Sized like the tile value so the band height doesn't shift. Hosts a
+   .fvh-sweep child (needs position:relative + overflow:hidden). */
+.fvh-root .fvh-pc-tileskel {
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+  width: 24px;
+  height: 11px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  vertical-align: middle;
+}
 .fvh-root .fvh-pc-skel-row {
   position: absolute;
   inset: 0;

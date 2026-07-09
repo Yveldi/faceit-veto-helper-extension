@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   beginHighPriority,
   computeCardStats,
+  computeCardStatsFromTime,
   computeMapStats,
+  computeMapStatsFromTime,
   defaultMapPool,
   defaultMapThumbnail,
   endHighPriority,
   faceitAPI,
   fetchMatchRounds,
+  fetchTimeStats,
   fetchWithRetry,
 } from "../utils";
 import { computePlayerWinrate } from "../stats";
@@ -150,7 +153,28 @@ function skeletonPlayer(rosterEntry) {
     // Last-30 aggregate for the player card's stats band; null until streamed.
     card: null,
     loaded: false,
+    // True once the fast "time" wave has filled the stats but the real FACEIT
+    // rating (match-rounds, wave 2) hasn't landed yet — drives the pulsing
+    // "estimated rating" state across the card + Veto Helper rating displays.
+    ratingEstimated: false,
   };
+}
+
+// Merge wave 2's real per-map faceit_rating into the wave-1 (time) per-map
+// tuples. We keep the time endpoint's match count + winrate (the task's source
+// of truth for those) and only swap the estimated rating for the real one; a map
+// the real data doesn't cover keeps its estimate. Real-only maps are added too.
+function mergeRealRatings(timeStats, realStats) {
+  const out = {};
+  for (const map in timeStats) {
+    const [estRating, winRate, count] = timeStats[map];
+    const real = realStats[map]?.[0];
+    out[map] = [typeof real === "number" ? real : estRating, winRate, count];
+  }
+  for (const map in realStats) {
+    if (!(map in out)) out[map] = realStats[map];
+  }
+  return out;
 }
 
 // --- hook -------------------------------------------------------------------
@@ -179,13 +203,18 @@ export default function useMatchData(
 ) {
   const [teams, setTeams] = useState(null);
   const [mapData, setMapData] = useState(null);
+  // loadedCount tracks WAVE 1 (the fast "time" stats) — that's when a player's
+  // data appears on the board, so it drives the loading UI. finalCount tracks
+  // WAVE 2 (real ratings from match-rounds), which `ready` gates on.
   const [loadedCount, setLoadedCount] = useState(0);
+  const [finalCount, setFinalCount] = useState(0);
 
   useEffect(() => {
     // Drop stale data right away (the old match must not show over the new one).
     setTeams(null);
     setMapData(null);
     setLoadedCount(0);
+    setFinalCount(0);
     if (!matchId) return;
 
     const controller = new AbortController();
@@ -213,25 +242,47 @@ export default function useMatchData(
           })),
         );
 
-        // Phase "streaming": fetch each player's match-rounds in place, one at
-        // a time (the only per-player request left — the profile/elo already
-        // came inline with the match payload). A single fetch feeds BOTH the
-        // per-map stats (Veto Helper) and the last-30 card aggregate (player
-        // card), so the card never costs an extra request. The rate limiter
-        // paces these; each arrival re-renders the UI.
-        //
+        // Two-wave per-player streaming. Both waves hit DIFFERENT FACEIT
+        // endpoints (separate rate-limit buckets), so the fast "time" wave
+        // paints almost everything near-instantly while match-rounds fills the
+        // real rating in behind it:
+        //   WAVE 1 — stats/time: match count + winrate per map, the whole card
+        //            band, and an ESTIMATED rating (pulses). Loads fast.
+        //   WAVE 2 — match-rounds: the real faceit_rating, which replaces the
+        //            estimate per map and on the card.
         // Skipped entirely when nothing needs stats (loadStats=false): cards
         // still render from the roster we already set above.
         if (loadStats) {
+          const slots = [];
           for (let ti = 0; ti < rawTeams.length; ti++) {
-            const roster = rawTeams[ti].roster;
-            for (let pi = 0; pi < roster.length; pi++) {
+            for (let pi = 0; pi < rawTeams[ti].roster.length; pi++) {
+              slots.push({ ti, pi, profile: rosterProfile(rawTeams[ti].roster[pi]) });
+            }
+          }
+
+          // WAVE 1 — the instant board. The time endpoint has its own tolerant
+          // rate-limit bucket + parallel lane, so we fire ALL players at once
+          // (Promise.all) and they land in ~one request's wall-clock time. One
+          // player's failure must not sink the batch (or block wave 2), so each
+          // is caught and still marked loaded (empty) so the board completes.
+          await Promise.all(
+            slots.map(async ({ ti, pi, profile }) => {
               if (signal.aborted) return;
-              const profile = rosterProfile(roster[pi]);
-              const rounds = await fetchMatchRounds(profile, 90, signal);
+              let stats = {};
+              let card = null;
+              try {
+                const entries = await fetchTimeStats(profile.id, 90, signal);
+                stats = computeMapStatsFromTime(entries);
+                card = computeCardStatsFromTime(entries, 30);
+              } catch (err) {
+                if (err?.name === "AbortError") return;
+                console.error(
+                  "Faceit Veto Helper: wave-1 time stats failed",
+                  profile.nickname ?? profile.id,
+                  err,
+                );
+              }
               if (signal.aborted) return;
-              const stats = computeMapStats(rounds);
-              const card = computeCardStats(rounds, 30);
 
               setTeams((prev) => {
                 if (!prev) return prev;
@@ -242,11 +293,51 @@ export default function useMatchData(
                   stats,
                   card,
                   loaded: true,
+                  // Only pulse if there's actually estimated data to resolve; a
+                  // player with no recent history has nothing to swap in later.
+                  ratingEstimated: Object.keys(stats).length > 0,
                 };
                 return next;
               });
               setLoadedCount((c) => c + 1);
-            }
+            }),
+          );
+          if (signal.aborted) return;
+
+          // WAVE 2 — swap the estimate for the real rating, in place.
+          for (const { ti, pi, profile } of slots) {
+            if (signal.aborted) return;
+            const rounds = await fetchMatchRounds(profile, 90, signal);
+            if (signal.aborted) return;
+            const realStats = computeMapStats(rounds);
+            const realCard = computeCardStats(rounds, 30);
+
+            setTeams((prev) => {
+              if (!prev) return prev;
+              const next = prev.map((t) => ({ ...t, roster: [...t.roster] }));
+              const player = next[ti].roster[pi];
+              const stats = mergeRealRatings(player.stats, realStats);
+              // Still an estimate only if match-rounds gave us no real rating AND
+              // there's estimated per-map data on screen to keep pulsing.
+              const stillEstimated =
+                realCard?.rating == null && Object.keys(stats).length > 0;
+              const card = player.card
+                ? {
+                    ...player.card,
+                    rating: realCard?.rating ?? player.card.rating,
+                    ratingEstimated: stillEstimated,
+                  }
+                : realCard;
+              next[ti].roster[pi] = {
+                ...player,
+                winrate: computePlayerWinrate(stats),
+                stats,
+                card,
+                ratingEstimated: stillEstimated,
+              };
+              return next;
+            });
+            setFinalCount((c) => c + 1);
           }
         }
 
@@ -316,6 +407,9 @@ export default function useMatchData(
 
   // When we're not streaming stats, the roster (nicknames + elo) IS the whole
   // load, so jump straight to "loaded" once the map data is in.
+  // `phase` tracks WAVE 1 (the fast board): the UI reaches "loaded" as soon as
+  // every player's time stats are in, showing the full board with estimated
+  // ratings pulsing.
   const phase = !mapData
     ? "init"
     : !loadStats
@@ -325,7 +419,14 @@ export default function useMatchData(
         : loadedCount < totalCount
           ? "streaming"
           : "loaded";
-  const ready = phase === "loaded";
+
+  // `ready` additionally requires WAVE 2 (real ratings): it gates consumers that
+  // must act on final data — AutoVeto's live win-values and App's self-stats
+  // cache — so they never run on estimated ratings. With loadStats off there's
+  // no per-player data at all, so the map payload alone means ready.
+  const ready = !loadStats
+    ? !!mapData
+    : phase === "loaded" && totalCount > 0 && finalCount >= totalCount;
 
   return {
     teams,

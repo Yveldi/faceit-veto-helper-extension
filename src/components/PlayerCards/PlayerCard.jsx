@@ -314,7 +314,13 @@ export default function PlayerCard({
               {(tiles || []).map((t) => (
                 <div className="fvh-pc-tile" key={t.label}>
                   <div className="fvh-pc-tileval" style={{ color: t.color }}>
-                    {t.val}
+                    {t.loading ? (
+                      <span className="fvh-pc-tileskel">
+                        <span className="fvh-sweep" />
+                      </span>
+                    ) : (
+                      t.val
+                    )}
                   </div>
                   <div className="fvh-pc-tilelabel">{t.label}</div>
                 </div>

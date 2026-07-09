@@ -73,6 +73,20 @@
     }
 }
 
+/* "Estimated rating" pulse (design: Rating Estimate Options). A rating shown
+   from the fast time-endpoint estimate gently pulses in place until match-rounds
+   lands the real FACEIT rating, at which point the class is dropped and the
+   number is final. Same 1.35s ease as the design's `bp` keyframe. Applied to
+   whatever element holds the (still-estimated) number — card RATING tile, matrix
+   cells, Stage-2 breakdown values, and the cell popover RATING tile. */
+@keyframes fvhest {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.42; }
+}
+.fvh-root .fvh-est {
+    animation: fvhest 1.35s ease-in-out infinite;
+}
+
 /* shimmering sweep highlight inside a skeleton/pending box (parent must be
    position:relative; overflow:hidden) */
 .fvh-root .fvh-sweep {

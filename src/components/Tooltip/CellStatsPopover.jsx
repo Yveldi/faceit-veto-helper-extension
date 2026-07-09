@@ -6,7 +6,7 @@ import { prettifyMapName } from "../../utils";
 // map, else a muted "no matches" note. `stat` is the raw per-map tuple
 // [rating, winRate, count] from getPlayerStats, or undefined when the player has
 // no rated history on the map.
-export default function CellStatsPopover({ player, map, stat }) {
+export default function CellStatsPopover({ player, map, stat, estimated }) {
   const [rating, winRate, count] = stat ?? [];
   const hasMatches = typeof count === "number" && count > 0;
 
@@ -33,7 +33,10 @@ export default function CellStatsPopover({ player, map, stat }) {
             <span className="lbl">WIN RATE</span>
           </div>
           <div className="fvh-cellpop-tile">
-            <span className="num" style={{ color: ratingColor(rating) }}>
+            <span
+              className={`num${estimated ? " fvh-est" : ""}`}
+              style={{ color: ratingColor(rating) }}
+            >
               {rating.toFixed(2)}
             </span>
             <span className="lbl">RATING</span>

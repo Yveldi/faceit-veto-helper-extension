@@ -52,7 +52,7 @@ export default function MapBreakdownPopover({
               >
                 <span className="pname">{p.profile.nickname}</span>
                 <span
-                  className="pval"
+                  className={`pval${p.ratingEstimated ? " fvh-est" : ""}`}
                   style={{ background: s.bg, color: s.fg }}
                 >
                   {v}

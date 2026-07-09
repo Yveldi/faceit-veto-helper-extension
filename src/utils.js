@@ -49,40 +49,58 @@ export function prettifyMapName(mapName) {
     .join(" ");
 }
 
-let queueChain = Promise.resolve();
-let earliestNextFetch = 0;
 const RATE_LIMIT_COOLDOWN_MS = 10_000;
+
+// --- per-endpoint rate-limit lanes ------------------------------------------
+// FACEIT rate-limits PER ENDPOINT, not globally: match-rounds (6 req / 20s) and
+// the stats/time endpoint (~40 req / window) have INDEPENDENT budgets, so a 429
+// (and its cooldown) on one must never hold up the other. Everything below is
+// therefore keyed by a `bucket` string (default = the shared match/v2 +
+// match-rounds lane; "time" = the fast wave-1 lane). Each bucket has its own
+// serialization queue AND its own cooldown clock.
+const DEFAULT_BUCKET = "default";
+const queueChains = { [DEFAULT_BUCKET]: Promise.resolve() }; // bucket -> Promise
+const earliestNextFetch = {}; // bucket -> timestamp floor
+
+function bucketFloor(bucket) {
+  return earliestNextFetch[bucket] ?? 0;
+}
 
 // Cross-tab rate-limit coordination. FACEIT applies its limit per account, not
 // per tab, so two open faceit.com tabs each running their own queue would
 // fire at twice the safe rate. We share only the cooldown CLOCK between tabs
 // (not the requests — those stay in each tab's content script so they keep the
 // same-origin cookie auth): whenever any tab reserves a slot or hits a 429, it
-// broadcasts its new `earliestNextFetch`, and every other tab pulls its own
-// clock forward to match. Each tab still serializes its own queue locally; the
-// shared floor just stops tabs from overlapping. BroadcastChannel is supported
-// in every browser we target (Firefox 109+, Chrome) but guarded for safety.
+// broadcasts its new floor FOR THAT BUCKET, and every other tab pulls its own
+// clock for that bucket forward to match. Each tab still serializes its own
+// queue locally; the shared floor just stops tabs from overlapping. Buckets
+// stay independent across tabs too. BroadcastChannel is supported in every
+// browser we target (Firefox 109+, Chrome) but guarded for safety.
 const rateLimitChannel =
   typeof BroadcastChannel !== "undefined"
     ? new BroadcastChannel("fvh-rate-limit")
     : null;
 
-// Pull our local clock forward to a floor another tab announced (or any newer
-// reservation). Only ever moves the clock later, never earlier.
-function bumpEarliestNextFetch(ts) {
-  if (ts > earliestNextFetch) earliestNextFetch = ts;
+// Pull a bucket's local clock forward to a floor another tab announced (or any
+// newer reservation). Only ever moves the clock later, never earlier.
+function bumpEarliestNextFetch(bucket, ts) {
+  if (ts > bucketFloor(bucket)) earliestNextFetch[bucket] = ts;
 }
 
 rateLimitChannel?.addEventListener("message", (event) => {
+  const bucket = event.data?.bucket ?? DEFAULT_BUCKET;
   const ts = event.data?.earliestNextFetch;
-  if (typeof ts === "number") bumpEarliestNextFetch(ts);
+  if (typeof ts === "number") bumpEarliestNextFetch(bucket, ts);
 });
 
-// Reserve the next slot locally AND tell other tabs about it, so their queues
-// back off behind ours.
-function reserveSlot(untilTs) {
-  bumpEarliestNextFetch(untilTs);
-  rateLimitChannel?.postMessage({ earliestNextFetch: earliestNextFetch });
+// Reserve the next slot for a bucket locally AND tell other tabs about it, so
+// their queues on that bucket back off behind ours.
+function reserveSlot(bucket, untilTs) {
+  bumpEarliestNextFetch(bucket, untilTs);
+  rateLimitChannel?.postMessage({
+    bucket,
+    earliestNextFetch: bucketFloor(bucket),
+  });
 }
 
 // --- Veto-Helper priority lane ---------------------------------------------
@@ -141,28 +159,37 @@ export function endHighPriority() {
   }
 }
 
-// No proactive pacing: requests fire as fast as the serialized queue allows,
-// with nothing held back at the start of a load. The only wait is the one the
-// limiter itself forces on us after the fact — a 429's retry-after (see the
-// 429 branch below), broadcast onto this shared clock. The queue still
-// serializes to one request in flight so that wait, once discovered, holds
-// back the requests behind it instead of them all piling into the same 429.
-//
-// Priority: a "low" acquirer (harvester) that reaches the front of the queue
-// but finds a Veto Helper load in flight yields — it re-queues itself behind
-// any high-priority work — so a harvest request can never sit even one slot
-// ahead of a Veto Helper load.
-async function acquireFetchSlot(priority) {
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const myTurn = queueChain.then(async () => {
-      while (Date.now() < earliestNextFetch) {
-        const waitMs = earliestNextFetch - Date.now();
-        await sleep(waitMs / 1000);
-      }
-    });
-    queueChain = myTurn.catch(() => {});
-    await myTurn;
+// Wait until a bucket's cooldown floor has passed (the only wait we impose: a
+// 429's retry-after, discovered after the fact and broadcast onto that bucket's
+// clock). No proactive pacing otherwise.
+async function waitBucketFloor(bucket) {
+  while (Date.now() < bucketFloor(bucket)) {
+    await sleep((bucketFloor(bucket) - Date.now()) / 1000);
+  }
+}
+
+// Acquire a slot on `bucket`.
+//   serialize=true  (default lane): one request in flight at a time, so a
+//     discovered 429 wait holds back the requests behind it instead of them all
+//     piling into the same 429. This is the match/v2 + match-rounds lane.
+//   serialize=false (parallel lane): only honor the bucket's cooldown floor,
+//     then fire immediately — N callers go out concurrently. Used by the fast
+//     wave-1 "time" lane, whose endpoint tolerates ~40 req/window, so the whole
+//     roster loads in one request's wall-clock time.
+// Priority: a "low" acquirer (harvester) that reaches the front but finds a Veto
+// Helper load in flight yields and re-queues, so a harvest request never sits
+// even one slot ahead of a Veto Helper load. (Harvesting only uses the default
+// serialized lane.)
+async function acquireFetchSlot(priority, bucket, serialize) {
+  for (;;) {
+    if (serialize) {
+      const prev = queueChains[bucket] ?? Promise.resolve();
+      const myTurn = prev.then(() => waitBucketFloor(bucket));
+      queueChains[bucket] = myTurn.catch(() => {});
+      await myTurn;
+    } else {
+      await waitBucketFloor(bucket);
+    }
     if (priority === "low" && isVetoBusy()) {
       // Yield and re-queue so any high-priority request goes ahead of us.
       await sleep(0.12);
@@ -229,19 +256,27 @@ function parseRateLimit(response) {
   return { remaining, dripMs };
 }
 
-// After a request that DIDN'T 429, pace the queue off the headers it returned.
-// When the limiter says no slots remain, hold the next fetch back by one drip
-// interval so it lands on a refilled slot instead of a 429. When slots remain,
-// do nothing — the queue is free to fire. Broadcast the floor so other tabs
-// back off too (the limit is account-wide).
-function paceFromResponse(response) {
+// After a request that DIDN'T 429, pace that bucket off the headers it returned.
+// When the limiter says no slots remain, hold the next fetch on the bucket back
+// by one drip interval so it lands on a refilled slot instead of a 429. When
+// slots remain, do nothing — the queue is free to fire. Broadcast the floor so
+// other tabs back off on the same bucket too (the limit is account-wide).
+function paceFromResponse(response, bucket) {
   const info = parseRateLimit(response);
   if (info && info.remaining <= 0) {
-    reserveSlot(Date.now() + info.dripMs);
+    reserveSlot(bucket, Date.now() + info.dripMs);
   }
 }
 
-export async function fetchWithRetry(url, { signal, priority = "high" } = {}) {
+// `bucket` selects the per-endpoint rate-limit lane (default = match/v2 +
+// match-rounds; "time" = the fast wave-1 stats lane). `serialize` false runs the
+// request on the bucket's parallel lane (fire concurrently, honor only the
+// cooldown floor) — used for the tolerant time endpoint so the whole roster's
+// wave 1 goes out at once.
+export async function fetchWithRetry(
+  url,
+  { signal, priority = "high", bucket = DEFAULT_BUCKET, serialize = true } = {},
+) {
   const maxRetries = 10;
   const baseWaitTime = 4;
   const maxWaitTime = 20;
@@ -262,16 +297,16 @@ export async function fetchWithRetry(url, { signal, priority = "high" } = {}) {
     // so an aborted request never fires and frees the queue immediately. Timing
     // for normal (no-signal) callers is unchanged.
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    await acquireFetchSlot(priority);
+    await acquireFetchSlot(priority, bucket, serialize);
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
     const response = await fetch(url, { signal });
 
     if (response.ok) {
-      // Pace the NEXT request off this success's headers: FACEIT reports
-      // remaining=0 on the response that takes the last slot, so honour that
-      // instead of firing straight into a guaranteed 429.
-      paceFromResponse(response);
+      // Pace the NEXT request on this bucket off this success's headers: FACEIT
+      // reports remaining=0 on the response that takes the last slot, so honour
+      // that instead of firing straight into a guaranteed 429.
+      paceFromResponse(response, bucket);
       return response;
     }
     if (response.status === 404) {
@@ -288,7 +323,7 @@ export async function fetchWithRetry(url, { signal, priority = "high" } = {}) {
       // FACEIT told us exactly how long to wait — always honour that, account-
       // wide, regardless of how transient it looked.
       if (retryAfterMs !== null) {
-        reserveSlot(Date.now() + retryAfterMs);
+        reserveSlot(bucket, Date.now() + retryAfterMs);
         await sleep(retryAfterMs / 1000);
         continue;
       }
@@ -306,8 +341,9 @@ export async function fetchWithRetry(url, { signal, priority = "high" } = {}) {
       }
 
       // Still rate-limited after the quick retries — this is a real sustained
-      // limit. Now apply the heavy account-wide cooldown so all tabs back off.
-      reserveSlot(Date.now() + RATE_LIMIT_COOLDOWN_MS);
+      // limit. Now apply the heavy account-wide cooldown (for this bucket) so
+      // all tabs back off.
+      reserveSlot(bucket, Date.now() + RATE_LIMIT_COOLDOWN_MS);
       await sleep(RATE_LIMIT_COOLDOWN_MS / 1000);
       continue;
     }
@@ -510,6 +546,133 @@ export function computeCardStats(rounds, window = 30) {
     adr,
     hs,
     rating: ratingCount > 0 ? ratingSum / ratingCount : null,
+    matches: n,
+  };
+}
+
+// ============================================================================
+// FACEIT "time" stats endpoint — the fast first wave.
+//
+// `stats/v1/stats/time/users/{id}/games/cs2?page&size&game_mode` returns a flat
+// array of per-match objects (newest first) on a SEPARATE rate-limit bucket from
+// match-rounds, so it loads near-instantly even while match-rounds is in 429
+// backoff. It carries everything the player card + Veto Helper need EXCEPT the
+// FACEIT rating (there is no per-match faceit_rating here). So we fetch it first
+// to paint almost all the data immediately, and let match-rounds fill the real
+// rating in behind it. Field mapping (all values are STRINGS):
+//   i1 = map (class_name), i10 = win 1/0, i6 = kills, i9 = MVP rounds,
+//   c2 = K/D, c3 = K/R, c10 = ADR, c4 = HS%, date = ms timestamp.
+// ============================================================================
+
+const TIME_STATS_SIZE = 90; // per-map depth; one page, one request per player
+
+export async function fetchTimeStats(
+  playerId,
+  size = TIME_STATS_SIZE,
+  signal,
+  priority = "high",
+) {
+  const res = await fetchWithRetry(
+    `${faceitAPI}/stats/v1/stats/time/users/${playerId}/games/cs2?${new URLSearchParams(
+      { page: "0", size: String(size), game_mode: "5v5" },
+    )}`,
+    // Its own endpoint bucket + the parallel lane: wave 1 for the whole roster
+    // fires concurrently and never shares a cooldown with match-rounds.
+    { signal, priority, bucket: "time", serialize: false },
+  );
+  const data = await res.json();
+  // Endpoint returns a bare array (some deployments wrap it — tolerate both).
+  return Array.isArray(data) ? data : (data.payload ?? data.items ?? []);
+}
+
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+// While the real FACEIT rating (from match-rounds) is still loading, estimate it
+// from the time endpoint's per-match stats. FACEIT rating tracks per-round output
+// almost perfectly, and empirically a linear fit on ADR predicts it to within
+// ~0.05 across a real lobby (regression over the ten cards in a live matchroom).
+// This replaces the old (avgKD + avgKR)/1.5, which — having NO intercept — was
+// far too steep and badly overestimated high fraggers (e.g. 1.6 vs a real 1.28).
+// Output is on the same ~1.0 faceit_rating scale, so it slots straight into
+// calculatePlayerWinrate / the rating colour ramp and is simply replaced when the
+// real value arrives.
+export function estimateRating(avgAdr) {
+  return 0.0063 * avgAdr + 0.65;
+}
+
+// Per-map { map: [estRating, winRate, count] } from time entries — SAME shape as
+// computeMapStats, so computePlayerWinrate etc. consume it unchanged. `rating` is
+// the estimate above (per map); match-rounds swaps in the real value in wave 2.
+export function computeMapStatsFromTime(entries) {
+  const acc = {};
+  for (const e of entries || []) {
+    const map = e.i1;
+    if (!map) continue;
+    const adr = num(e.c10);
+    const win = num(e.i10);
+    if (adr === null || win === null) continue;
+    if (!acc[map]) acc[map] = { adr: 0, wins: 0, count: 0 };
+    const a = acc[map];
+    a.adr += adr;
+    a.wins += win ? 1 : 0;
+    a.count++;
+  }
+  const out = {};
+  for (const map in acc) {
+    const a = acc[map];
+    out[map] = [
+      estimateRating(a.adr / a.count),
+      (a.wins / a.count) * 100,
+      a.count,
+    ]; // 0: (estimated) Rating, 1: Winrate, 2: No of matches
+  }
+  return out;
+}
+
+// Last-N (default 30) card band from time entries — everything but the real
+// rating. FACEIT shows these "average" stats as the mean of per-match values, so
+// we average the endpoint's own c-values (rather than pooling raw components,
+// which also sidesteps the i7/i8 assists-vs-deaths ambiguity). `rating` is the
+// estimate and `ratingEstimated` flags it for the pulsing "still loading" state;
+// match-rounds replaces both in wave 2.
+export function computeCardStatsFromTime(entries, window = 30) {
+  if (!entries || entries.length === 0) return null;
+  const sorted = [...entries].sort((a, b) => (num(b.date) ?? 0) - (num(a.date) ?? 0));
+  const slice = sorted.slice(0, window);
+  const n = slice.length;
+  if (n === 0) return null;
+
+  const mean = (key) => {
+    let sum = 0;
+    let count = 0;
+    for (const e of slice) {
+      const v = num(e[key]);
+      if (v !== null) {
+        sum += v;
+        count++;
+      }
+    }
+    return count > 0 ? sum / count : null;
+  };
+
+  let wins = 0;
+  for (const e of slice) if (num(e.i10)) wins++;
+
+  const adr = mean("c10");
+  const rating = adr !== null ? estimateRating(adr) : null;
+
+  return {
+    win: (wins / n) * 100,
+    kills: mean("i6"),
+    kd: mean("c2"),
+    kr: mean("c3"),
+    adr,
+    hs: mean("c4"),
+    rating,
+    ratingEstimated: rating !== null,
     matches: n,
   };
 }

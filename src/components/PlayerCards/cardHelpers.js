@@ -41,6 +41,11 @@ export function statTiles(card) {
       label: "RATING",
       val: fmt(card?.rating, 2),
       color: colOr(card?.rating, ratingColor),
+      // On the CARD the rating stays HIDDEN behind a loading shimmer until the
+      // real FACEIT rating lands (match-rounds, wave 2) — we don't surface the
+      // estimate here (unlike the Veto Helper surfaces, which pulse it). All the
+      // other tiles are already final from wave 1.
+      loading: !!card?.ratingEstimated,
     },
   ];
 }

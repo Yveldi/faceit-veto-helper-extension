@@ -169,11 +169,21 @@ export default function PlayerMatrix({
                                     player={p.profile.nickname}
                                     map={map}
                                     stat={p.stats[map]}
+                                    estimated={p.ratingEstimated}
                                   />
                                 </Tooltip>
                               )}
                             >
-                              {v}
+                              {/* Pulse the number itself (not the cell) while the
+                                  rating is still estimated — the cell already
+                                  runs the fvhcellin entrance animation, so an
+                                  inner span avoids the animation collision and
+                                  matches how the Stage-2 popover value pulses. */}
+                              <span
+                                className={p.ratingEstimated ? "fvh-est" : undefined}
+                              >
+                                {v}
+                              </span>
                             </Hoverable>
                           );
                         })
