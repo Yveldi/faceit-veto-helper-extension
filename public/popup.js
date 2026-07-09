@@ -71,8 +71,6 @@ const els = {
   zoneDynamic: document.getElementById("zoneDynamic"),
   zoneLast: document.getElementById("zoneLast"),
   zoneServer: document.getElementById("zoneServer"),
-<<<<<<< Updated upstream
-=======
   replacePlayerCards: document.getElementById("replacePlayerCards"),
   cardStatsReveal: document.getElementById("cardStatsReveal"),
   showPlayerCardStats: document.getElementById("showPlayerCardStats"),
@@ -80,8 +78,63 @@ const els = {
   accessWarn: document.getElementById("accessWarn"),
   accessWarnGrant: document.getElementById("accessWarnGrant"),
   accessWarnDismiss: document.getElementById("accessWarnDismiss"),
->>>>>>> Stashed changes
 };
+
+// The origin every feature depends on. Must match the manifest host_permissions.
+const FACEIT_ORIGINS = ["*://*.faceit.com/*"];
+
+// Resolve whether we currently have host access to faceit.com, via `cb(granted)`.
+// We DON'T use permissions.contains({origins:[broad pattern]}): when the user
+// picks "Always allow on www.faceit.com" from the toolbar, Firefox records the
+// grant scoped to that site, which contains() won't treat as covering the broad
+// manifest pattern — so it falsely reports "not granted". Instead we read the
+// actually-granted origins with getAll() and check if any of them mentions
+// faceit.com (host_permissions are optional-by-default in MV3, so this list
+// reflects the real user choice: present when allowed, absent when "Only When
+// Clicked"). Falls back to contains(), then to "assume granted" so we never nag
+// when we genuinely can't tell.
+function hasFaceitAccess(cb) {
+  const perms = api.permissions;
+  if (perms?.getAll) {
+    perms.getAll((all) => {
+      if (api.runtime?.lastError) return cb(true);
+      const origins = all?.origins || [];
+      cb(origins.some((o) => o.includes("faceit.com")));
+    });
+    return;
+  }
+  if (perms?.contains) {
+    perms.contains({ origins: FACEIT_ORIGINS }, (granted) =>
+      cb(api.runtime?.lastError ? true : granted),
+    );
+    return;
+  }
+  cb(true);
+}
+
+// Show the site-access warning unless the extension currently has host access to
+// faceit.com. This is orthogonal to the feature toggles: without access the
+// content script never runs, so nothing works regardless of settings. Re-checked
+// on every popup open (the warning is dismissable per-open, never persisted, so
+// it reappears until access is actually granted).
+function refreshAccessWarning() {
+  hasFaceitAccess((granted) => {
+    els.accessWarn.classList.toggle("show", !granted);
+  });
+}
+
+els.accessWarnGrant.addEventListener("click", () => {
+  const perms = api.permissions;
+  if (!perms?.request) return;
+  // Must run from this click (a user gesture) or the browser rejects the prompt.
+  perms.request({ origins: FACEIT_ORIGINS }, (granted) => {
+    if (granted) els.accessWarn.classList.remove("show");
+  });
+});
+
+els.accessWarnDismiss.addEventListener("click", () => {
+  els.accessWarn.classList.remove("show");
+});
 
 function save(partial) {
   api.storage.local.set(partial);
@@ -592,6 +645,7 @@ function getSettings() {
 // later user toggles do. The double rAF guarantees the no-anim state has been
 // painted before transitions are re-enabled.
 Promise.all([loadPools(), getSettings()]).then(([pools, s]) => {
+  refreshAccessWarning();
   applyBasicSettings(s);
   els.autoVetoEnabled.checked = s.autoVetoEnabled;
   els.autoVetoDelay.value = s.autoVetoDelay;
