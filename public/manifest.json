@@ -1,19 +1,25 @@
 {
   "manifest_version": 3,
   "name": "Faceit Veto Helper",
-  "version": "0.0.1",
+  "version": "1.3.8",
   "description": "Map win-probability veto helper and auto-accept for CS2 matchmaking. Unofficial; not affiliated with FACEIT.",
   "browser_specific_settings": {
     "gecko": {
       "id": "baniq@yveldi.dev",
       "strict_min_version": "128.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },
-  "permissions": ["storage"],
-  "host_permissions": ["*://*.faceit.com/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.faceit.com/*"
+  ],
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -33,14 +39,22 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.faceit.com/*"],
-      "js": ["inject.js"],
+      "matches": [
+        "*://*.faceit.com/*"
+      ],
+      "js": [
+        "inject.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["*://*.faceit.com/*"],
-      "js": ["content.js"]
+      "matches": [
+        "*://*.faceit.com/*"
+      ],
+      "js": [
+        "content.js"
+      ]
     }
   ]
 }
