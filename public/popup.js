@@ -20,6 +20,9 @@ const DEFAULTS = {
   autoVetoMapDynamic: [],
   autoVetoMapLast: [],
   autoVetoServerOrder: [],
+  replacePlayerCards: true,
+  showPlayerCardStats: true,
+  playerTrackingEnabled: false,
 };
 
 const els = {
@@ -68,6 +71,16 @@ const els = {
   zoneDynamic: document.getElementById("zoneDynamic"),
   zoneLast: document.getElementById("zoneLast"),
   zoneServer: document.getElementById("zoneServer"),
+<<<<<<< Updated upstream
+=======
+  replacePlayerCards: document.getElementById("replacePlayerCards"),
+  cardStatsReveal: document.getElementById("cardStatsReveal"),
+  showPlayerCardStats: document.getElementById("showPlayerCardStats"),
+  playerTrackingEnabled: document.getElementById("playerTrackingEnabled"),
+  accessWarn: document.getElementById("accessWarn"),
+  accessWarnGrant: document.getElementById("accessWarnGrant"),
+  accessWarnDismiss: document.getElementById("accessWarnDismiss"),
+>>>>>>> Stashed changes
 };
 
 function save(partial) {
@@ -147,6 +160,12 @@ function reflectVetoLock() {
   setReveal(els.vetoLockReveal, els.vetoHelperEnabled.checked);
 }
 
+// "Show card stats" is a sub-option of the player-card replacement: only shown
+// (and only meaningful) while the replacement is on.
+function reflectCardStatsLink() {
+  setReveal(els.cardStatsReveal, els.replacePlayerCards.checked);
+}
+
 function applyBasicSettings(s) {
   els.autoAcceptEnabled.checked = s.autoAcceptEnabled;
   els.autoAcceptDelay.value = s.autoAcceptDelay;
@@ -159,10 +178,27 @@ function applyBasicSettings(s) {
   const always = s.regretHelperAlways && s.regretHelperEnabled;
   els.regretHelperAlways.checked = always;
   if (always !== s.regretHelperAlways) save({ regretHelperAlways: always });
+  els.replacePlayerCards.checked = s.replacePlayerCards;
+  els.showPlayerCardStats.checked = s.showPlayerCardStats;
+  els.playerTrackingEnabled.checked = s.playerTrackingEnabled;
   reflectDelayEnabled();
   reflectRegretLink();
   reflectVetoLock();
+  reflectCardStatsLink();
 }
+
+els.replacePlayerCards.addEventListener("change", () => {
+  save({ replacePlayerCards: els.replacePlayerCards.checked });
+  reflectCardStatsLink();
+});
+
+els.showPlayerCardStats.addEventListener("change", () => {
+  save({ showPlayerCardStats: els.showPlayerCardStats.checked });
+});
+
+els.playerTrackingEnabled.addEventListener("change", () => {
+  save({ playerTrackingEnabled: els.playerTrackingEnabled.checked });
+});
 
 els.autoAcceptEnabled.addEventListener("change", () => {
   save({ autoAcceptEnabled: els.autoAcceptEnabled.checked });

@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  beginHighPriority,
+  computeCardStats,
+  computeMapStats,
   defaultMapPool,
   defaultMapThumbnail,
+  endHighPriority,
   faceitAPI,
+  fetchMatchRounds,
   fetchWithRetry,
-  getPlayerStats,
 } from "../utils";
 import { computePlayerWinrate } from "../stats";
 
@@ -78,6 +82,22 @@ function rosterProfile(rosterEntry) {
     id: rosterEntry.id,
     nickname: rosterEntry.nickname,
     games: { cs2: { faceit_elo: rosterEntry.elo ?? 0 } },
+    // Extra inline fields the player card renders — all already in the match
+    // payload's roster, so no extra request. `elo` above is what stats use;
+    // these are purely for the card (avatar, ESEA star, level/rank, party
+    // grouping). Party id probes a few candidate keys because the field name
+    // isn't documented; grouping just needs a stable per-party token.
+    avatar: rosterEntry.avatar ?? null,
+    memberships: Array.isArray(rosterEntry.memberships)
+      ? rosterEntry.memberships
+      : [],
+    skillLevel: rosterEntry.gameSkillLevel ?? rosterEntry.skillLevel ?? null,
+    partyId:
+      rosterEntry.partyId ??
+      rosterEntry.activeGroup ??
+      rosterEntry.premadeId ??
+      (rosterEntry.premade ? rosterEntry.premade : null) ??
+      null,
   };
 }
 
@@ -127,6 +147,8 @@ function skeletonPlayer(rosterEntry) {
     profile: rosterProfile(rosterEntry),
     winrate: {},
     stats: {},
+    // Last-30 aggregate for the player card's stats band; null until streamed.
+    card: null,
     loaded: false,
   };
 }
@@ -143,11 +165,17 @@ function skeletonPlayer(rosterEntry) {
 // then each player is filled in place. `phase`/`loadedCount`/`totalCount`/`ready`
 // drive the loading UI; `ready` (=== loaded) gates consumers that must not act on
 // partial data (AutoVeto, the self-stats cache).
+// `loadStats` (default true) gates the per-player streaming fetch. When false
+// (e.g. only the player-card replacement is on and its stats band is hidden),
+// we still fetch match/v2 for the roster/pool but skip the ~10 per-player
+// requests entirely — cards render instantly from the inline elo/nickname and
+// nothing needs the streamed stats.
 export default function useMatchData(
   matchId,
   selfUserId,
   regretSingleMap,
   regretAlways,
+  loadStats = true,
 ) {
   const [teams, setTeams] = useState(null);
   const [mapData, setMapData] = useState(null);
@@ -162,6 +190,10 @@ export default function useMatchData(
 
     const controller = new AbortController();
     const { signal } = controller;
+
+    // Mark this whole load region high-priority so the player-tracking
+    // harvester (low priority) always yields the rate-limit queue to it.
+    beginHighPriority();
 
     (async () => {
       try {
@@ -181,30 +213,40 @@ export default function useMatchData(
           })),
         );
 
-        // Phase "streaming": fetch each player's per-map stats in place, one at
+        // Phase "streaming": fetch each player's match-rounds in place, one at
         // a time (the only per-player request left — the profile/elo already
-        // came inline with the match payload). The rate limiter paces these;
-        // each arrival re-renders the UI.
-        for (let ti = 0; ti < rawTeams.length; ti++) {
-          const roster = rawTeams[ti].roster;
-          for (let pi = 0; pi < roster.length; pi++) {
-            if (signal.aborted) return;
-            const profile = rosterProfile(roster[pi]);
-            const stats = await getPlayerStats(profile, 90, signal);
-            if (signal.aborted) return;
+        // came inline with the match payload). A single fetch feeds BOTH the
+        // per-map stats (Veto Helper) and the last-30 card aggregate (player
+        // card), so the card never costs an extra request. The rate limiter
+        // paces these; each arrival re-renders the UI.
+        //
+        // Skipped entirely when nothing needs stats (loadStats=false): cards
+        // still render from the roster we already set above.
+        if (loadStats) {
+          for (let ti = 0; ti < rawTeams.length; ti++) {
+            const roster = rawTeams[ti].roster;
+            for (let pi = 0; pi < roster.length; pi++) {
+              if (signal.aborted) return;
+              const profile = rosterProfile(roster[pi]);
+              const rounds = await fetchMatchRounds(profile, 90, signal);
+              if (signal.aborted) return;
+              const stats = computeMapStats(rounds);
+              const card = computeCardStats(rounds, 30);
 
-            setTeams((prev) => {
-              if (!prev) return prev;
-              const next = prev.map((t) => ({ ...t, roster: [...t.roster] }));
-              next[ti].roster[pi] = {
-                profile,
-                winrate: computePlayerWinrate(stats),
-                stats,
-                loaded: true,
-              };
-              return next;
-            });
-            setLoadedCount((c) => c + 1);
+              setTeams((prev) => {
+                if (!prev) return prev;
+                const next = prev.map((t) => ({ ...t, roster: [...t.roster] }));
+                next[ti].roster[pi] = {
+                  profile,
+                  winrate: computePlayerWinrate(stats),
+                  stats,
+                  card,
+                  loaded: true,
+                };
+                return next;
+              });
+              setLoadedCount((c) => c + 1);
+            }
           }
         }
 
@@ -230,12 +272,16 @@ export default function useMatchData(
         if (!signal.aborted) {
           console.error("Faceit Veto Helper: failed to load match data", err);
         }
+      } finally {
+        // Always release the priority lane, even on early `return` (abort) or
+        // error, so the harvester isn't blocked forever.
+        endHighPriority();
       }
     })();
 
     // Aborts the in-flight fetch and frees the rate-limit queue of its requests.
     return () => controller.abort();
-  }, [matchId]);
+  }, [matchId, loadStats]);
 
   const { mapPool, mapThumbnails } = useMemo(() => {
     const { mapPool, thumbnails } = resolveMapPool(
@@ -268,13 +314,17 @@ export default function useMatchData(
     [teams],
   );
 
+  // When we're not streaming stats, the roster (nicknames + elo) IS the whole
+  // load, so jump straight to "loaded" once the map data is in.
   const phase = !mapData
     ? "init"
-    : loadedCount === 0
-      ? "maps"
-      : loadedCount < totalCount
-        ? "streaming"
-        : "loaded";
+    : !loadStats
+      ? "loaded"
+      : loadedCount === 0
+        ? "maps"
+        : loadedCount < totalCount
+          ? "streaming"
+          : "loaded";
   const ready = phase === "loaded";
 
   return {

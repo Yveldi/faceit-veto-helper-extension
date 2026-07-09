@@ -457,6 +457,55 @@
 
     <div class="row">
       <div>
+        <span class="title">Replace player cards</span>
+        <span class="desc">
+          Swap FACEIT's roster for our cards with flags &amp; last-30 stats
+        </span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="replacePlayerCards" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="reveal" id="cardStatsReveal">
+      <div class="reveal-inner">
+        <div class="reveal-content">
+          <div class="sub-option">
+            <div>
+              <span class="title">Show card stats</span>
+              <span class="desc">
+                Per-player WIN / K-D / ADR / HS% / rating over the last 30
+                matches
+              </span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="showPlayerCardStats" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <span class="title">Player tracking</span>
+        <span class="desc">
+          Remember who you played with &amp; against; adds a history chip to
+          cards. Fetches in the background, always behind the veto helper.
+        </span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="playerTrackingEnabled" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <hr />
+
+    <div class="row">
+      <div>
         <span class="title">Auto veto</span>
         <span class="desc">
           Ban servers &amp; maps for you when you're the captain

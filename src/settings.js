@@ -45,6 +45,19 @@ export const SETTINGS_DEFAULTS = {
   autoVetoMapLast: [], // ban these last; the very bottom is the intended keep
   // Server preference, top = ban first, bottom = keep. Empty = shipped pool.
   autoVetoServerOrder: [],
+
+  // Replace FACEIT's native matchroom roster with our own player cards. On by
+  // default. Cards render from the shared match data (no new requests); flags +
+  // cosmetics are read from FACEIT's own user-summary call.
+  replacePlayerCards: true,
+  // Show the per-player stats band (last-30 WIN/KILLS/K-D/K-R/ADR/HS%/RATING) on
+  // our cards. On by default; a sub-option of replacePlayerCards.
+  showPlayerCardStats: true,
+  // Player tracking: quietly record who you've played with/against so the cards
+  // can show a match-history chip. Off by default because, unlike the rest, it
+  // makes its OWN background requests (a match/v2 per past match) — always behind
+  // the Veto Helper (see PLAYER_TRACKING_SPEC.md).
+  playerTrackingEnabled: false,
 };
 
 const storage =
