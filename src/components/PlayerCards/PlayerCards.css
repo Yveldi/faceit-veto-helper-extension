@@ -159,6 +159,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The logged-in user's own name, highlighted orange to match FACEIT + the mock. */
+.fvh-root .fvh-pc-name.self {
+  color: #ff5500;
+}
 .fvh-root .fvh-pc-histchip {
   display: inline-flex;
   align-items: center;

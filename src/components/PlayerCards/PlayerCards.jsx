@@ -8,6 +8,7 @@ import {
   subscribeTracking,
 } from "../../playerTracking/store";
 import PlayerCard from "./PlayerCard";
+import { ACTIONS } from "./cardHelpers";
 import "./PlayerCards.css";
 
 // Re-render whenever a user summary (flags/cosmetics) or tracking data arrives.
@@ -72,7 +73,10 @@ function TeamColumn({
   mirror,
   statsEnabled,
   encounters,
+  selfUserId,
   onOpenProfile,
+  onAction,
+  nativeActions,
 }) {
   const parties = useMemo(() => deriveParties(team.roster), [team.roster]);
   return (
@@ -85,12 +89,52 @@ function TeamColumn({
           encounter={encounters[player.profile.id]}
           mirror={mirror}
           statsEnabled={statsEnabled}
+          isSelf={!!selfUserId && player.profile.id === selfUserId}
           party={parties[player.profile.id]}
           onOpenProfile={(rect) => onOpenProfile(player.profile.id, rect, mirror)}
+          onAction={(index) => onAction(player.profile.id, index)}
+          getActions={() => nativeActions(player.profile.id)}
         />
       ))}
     </div>
   );
+}
+
+// A team built purely from the native DOM rows (nickname + avatar), shown
+// INSTANTLY before match/v2 returns. elo/level/party/cosmetics/stats are unknown
+// yet, so the card renders name + avatar with a skeleton stats band and no elo
+// (they overlay in once the real team data arrives). `id` is the nickname as a
+// stand-in guid — good enough to key/render; the real guid lands with the fetch.
+function skeletonTeamFromSlot(slot) {
+  return {
+    name: "",
+    roster: slot.domPlayers.map((d) => ({
+      profile: {
+        id: d.nickname,
+        nickname: d.nickname,
+        avatar: d.avatar,
+        games: { cs2: { faceit_elo: 0 } },
+        memberships: [],
+        skillLevel: null,
+        partyId: null,
+      },
+      winrate: {},
+      stats: {},
+      card: null,
+      loaded: false,
+      ratingEstimated: false,
+    })),
+  };
+}
+
+// The team to render into a given native slot: the aligned real data.teams team
+// once loaded, else the instant DOM skeleton for that slot.
+function resolveTeam(slot, teams) {
+  if (teams) {
+    const ti = alignTeamIndex(slot, teams);
+    if (ti >= 0) return teams[ti];
+  }
+  return skeletonTeamFromSlot(slot);
 }
 
 // Align a native team column (by its nicknames) to one of our data.teams.
@@ -112,21 +156,23 @@ function alignTeamIndex(slot, teams) {
 
 // Feature component: hides each native team roster (keeping the middle
 // map/score/server column) and portals our team cards into each column.
-export default function PlayerCards({ data, statsEnabled }) {
+export default function PlayerCards({ matchId, data, selfUserId, statsEnabled }) {
   useSideDataVersion();
 
   const players = useMemo(
     () => (data.teams ? data.teams.flatMap((t) => t.roster) : []),
     [data.teams],
   );
-  const block = useRosterBlock(players);
+  const block = useRosterBlock(matchId, players);
   const mountsRef = useRef([]); // [{ hideEl, mountNode }]
-  const [mounts, setMounts] = useState([]); // [{ mountNode, teamIndex, mirror }]
+  const [mounts, setMounts] = useState([]); // [{ mountNode, slot, mirror }]
 
-  // Set up per-team mounts: hide each native Roster__Wrapper and create a mount
-  // inside its column. Cleanup restores the native rosters.
+  // Set up per-team mounts as soon as the roster is DETECTED — NOT gated on
+  // match/v2 (data.teams). Hide each native Roster__Wrapper and create a mount
+  // inside its column; each mount renders that slot's cards from data.teams if
+  // loaded, else the instant DOM skeleton. Cleanup restores the native rosters.
   useEffect(() => {
-    if (!block?.teamSlots || !data.teams) return;
+    if (!block?.teamSlots) return;
 
     const created = [];
     block.teamSlots.forEach((slot, i) => {
@@ -135,11 +181,10 @@ export default function PlayerCards({ data, statsEnabled }) {
       mountNode.className = "fvh-cards-mount fvh-root";
       // Place our mount right after the hidden wrapper, inside the same column.
       slot.colEl.insertBefore(mountNode, slot.hideEl.nextSibling);
-      const teamIndex = alignTeamIndex(slot, data.teams);
-      created.push({ hideEl: slot.hideEl, mountNode, teamIndex, mirror: i === 1 });
+      created.push({ hideEl: slot.hideEl, mountNode, slot, mirror: i === 1 });
     });
     mountsRef.current = created;
-    setMounts(created.filter((c) => c.teamIndex >= 0));
+    setMounts(created);
 
     return () => {
       for (const c of created) {
@@ -149,7 +194,15 @@ export default function PlayerCards({ data, statsEnabled }) {
       mountsRef.current = [];
       setMounts([]);
     };
-  }, [block?.teamSlots, data.teams]);
+  }, [block?.teamSlots]);
+
+  // Resolve each mount's team (real once loaded, else DOM skeleton). Memoized so
+  // an unrelated re-render doesn't churn a fresh skeleton object every time;
+  // recomputes when the mounts change or data streams in.
+  const resolvedTeams = useMemo(
+    () => mounts.map((m) => resolveTeam(m.slot, data.teams)),
+    [mounts, data.teams],
+  );
 
   // Full safety cleanup on unmount / feature-off.
   useEffect(() => {
@@ -175,7 +228,7 @@ export default function PlayerCards({ data, statsEnabled }) {
 
   const openProfile = (playerId, cardRect, mirror) => {
     const cardForRef = block?.cardForRef;
-    const el = cardForRef?.current?.[playerId];
+    const el = cardForRef?.current?.[playerId]?.card;
     if (!el) return;
 
     const st = openRef.current;
@@ -193,20 +246,13 @@ export default function PlayerCards({ data, statsEnabled }) {
     }
 
     openRef.current = { playerId, node: null };
-    el.click();
 
     // FACEIT anchors the popup to the native card via a Base UI popover, but our
-    // card is display:none (no rect) so it lands at 0,0. Reposition it to our
+    // card is display:none (no rect) so it lands at 0,0 — which used to flash in
+    // the top-left corner for a frame before we moved it. Reposition it to our
     // card's OUTER edge (left team -> left, right team -> right, small gap),
     // vertically centred on the card.
-    const place = (tries = 0) => {
-      // Bail if a newer click superseded this one.
-      if (openRef.current.playerId !== playerId) return;
-      const pop = profilePopups()[0];
-      if (!pop) {
-        if (tries < 12) setTimeout(() => place(tries + 1), 40);
-        return;
-      }
+    const position = (pop) => {
       const rect = pop.getBoundingClientRect();
       const W = rect.width || 288;
       const H = rect.height || 483;
@@ -221,23 +267,77 @@ export default function PlayerCards({ data, statsEnabled }) {
       pop.style.top = `${top}px`;
       pop.style.transform = "none";
       pop.style.zIndex = "2147483000";
+      pop.style.visibility = "visible";
       openRef.current.node = pop;
     };
-    place();
+
+    // Catch the popup the instant FACEIT adds it (a MutationObserver callback
+    // fires before the browser paints), HIDE it there so it never paints at 0,0,
+    // then position + reveal it on the next frame once it has real dimensions.
+    // This is what removes the top-left-corner jitter.
+    let placed = false;
+    const obs = new MutationObserver(() => {
+      if (placed || openRef.current.playerId !== playerId) return;
+      const pop = profilePopups()[0];
+      if (!pop) return;
+      placed = true;
+      obs.disconnect();
+      pop.style.visibility = "hidden";
+      requestAnimationFrame(() => {
+        if (openRef.current.playerId === playerId) position(pop);
+      });
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    // Stop watching after a beat if the popup never showed (e.g. no permission).
+    setTimeout(() => obs.disconnect(), 2000);
+
+    el.click();
   };
 
-  if (!block?.teamSlots || mounts.length === 0 || !data.teams) return null;
+  // The native action buttons currently present for a player. FACEIT only renders
+  // Like/Block/Report while they're usable (a short window during & after the
+  // match); outside it there's no `HoverReportOptions` container / no buttons. We
+  // MIRROR that (PLAYER_CARDS_SPEC §9.4): return only the ACTIONS whose native
+  // button actually exists and is enabled, so our buttons never show when they'd
+  // do nothing. Read fresh (it changes with match state) — callers read on hover.
+  const nativeActions = (playerId) => {
+    const body = block?.cardForRef?.current?.[playerId]?.body;
+    if (!body) return [];
+    const container = body.querySelector('[class*="HoverReportOptions"]');
+    if (!container) return [];
+    const btns = container.querySelectorAll("button");
+    return ACTIONS.filter((a) => {
+      const b = btns[a.index];
+      return b && !b.disabled;
+    });
+  };
+
+  // Proxy-click the native Like (0) / Block (1) / Report (2) button for a player,
+  // reusing FACEIT's own action popups (see PLAYER_CARDS_SPEC §9). Re-resolve the
+  // native buttons at click time — a FACEIT re-render can invalidate references.
+  const doAction = (playerId, index) => {
+    const body = block?.cardForRef?.current?.[playerId]?.body;
+    if (!body) return;
+    const container = body.querySelector('[class*="HoverReportOptions"]');
+    const btn = container?.querySelectorAll("button")[index];
+    if (btn) btn.click();
+  };
+
+  if (!block?.teamSlots || mounts.length === 0) return null;
 
   return (
     <>
       {mounts.map((m, i) =>
         createPortal(
           <TeamColumn
-            team={data.teams[m.teamIndex]}
+            team={resolvedTeams[i]}
             mirror={m.mirror}
             statsEnabled={statsEnabled}
             encounters={encounters}
+            selfUserId={selfUserId}
             onOpenProfile={openProfile}
+            onAction={doAction}
+            nativeActions={nativeActions}
           />,
           m.mountNode,
           i,

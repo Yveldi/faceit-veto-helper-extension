@@ -118,8 +118,11 @@ export default function PlayerCard({
   encounter,
   mirror,
   statsEnabled,
+  isSelf,
   party,
   onOpenProfile,
+  onAction,
+  getActions,
 }) {
   const [hover, setHover] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
@@ -147,6 +150,12 @@ export default function PlayerCard({
   const meta = histMeta(encounter);
   const tiles = statsEnabled ? statTiles(player.card) : null;
   const statsLoading = statsEnabled && !player.loaded;
+  // Action buttons mirror FACEIT's native ones: read fresh on hover (they're only
+  // rendered natively during the short like/report window), and show only those
+  // that actually exist so our buttons never appear when they'd do nothing.
+  const actionList =
+    hover && !isSelf && onAction && getActions ? getActions() : [];
+  const showActions = actionList.length > 0;
 
   const avatarStyle = profile?.avatar
     ? { backgroundImage: `url('${profile.avatar}')` }
@@ -247,7 +256,9 @@ export default function PlayerCard({
           <div className="fvh-pc-namecol">
             <div className="fvh-pc-nameline">
               {country && <Flag code={country} />}
-              <span className="fvh-pc-name">{profile?.nickname}</span>
+              <span className={`fvh-pc-name ${isSelf ? "self" : ""}`}>
+                {profile?.nickname}
+              </span>
               {verifySvg && (
                 <span
                   className="fvh-pc-verify"
@@ -281,7 +292,14 @@ export default function PlayerCard({
           </div>
 
           <div className="fvh-pc-right">
-            <div className="fvh-pc-elo">
+            {/* Elo/level crossfades OUT on hover as the action buttons fade in. */}
+            <div
+              className="fvh-pc-elo"
+              style={{
+                opacity: hover && showActions ? 0 : 1,
+                pointerEvents: hover && showActions ? "none" : "auto",
+              }}
+            >
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
                 <path
                   d="M1 11l4-4 3 3 6-7"
@@ -291,11 +309,36 @@ export default function PlayerCard({
                   strokeLinejoin="round"
                 />
               </svg>
-              <span className="fvh-pc-elonum">{elo}</span>
+              <span className="fvh-pc-elonum">{elo > 0 ? elo : ""}</span>
               <span className="fvh-pc-level">
                 <LevelIcon level={profile?.skillLevel} size={22} />
               </span>
             </div>
+            {showActions && (
+              // Like / Block / Report — revealed on hover, each proxy-clicks the
+              // native FACEIT button; stopPropagation so the card's profile-open
+              // click doesn't also fire.
+              <div
+                className="fvh-pc-actions"
+                style={{
+                  opacity: hover ? 1 : 0,
+                  pointerEvents: hover ? "auto" : "none",
+                }}
+              >
+                {actionList.map((a) => (
+                  <span
+                    key={a.kind}
+                    className={`fvh-pc-act ${a.kind}`}
+                    title={a.title}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAction?.(a.index);
+                    }}
+                    dangerouslySetInnerHTML={{ __html: a.svg }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

@@ -72,6 +72,31 @@ export function verifyCheckSvg(level) {
 export const ESEA_SVG =
   '<svg viewBox="0 0 30 23" fill="none" xmlns="http://www.w3.org/2000/svg" height="14" width="14"><path d="M16.564 1.588c.39-.541.778-1.078 1.198-1.588.059.53.098 1.059.133 1.588.171 2.386.35 4.772.513 7.158h-6.895a6.026 6.026 0 01-.778 2.475c-.778 1.254-2.07 2.075-3.245 2.935a11095.7 11095.7 0 0013.518-3.34c2.933-.688 5.836-1.498 8.786-2.12-3.623 1.922-7.358 3.627-11.008 5.491.206 2.838.389 5.675.595 8.509v.249l-.338-.25c-2.34-1.73-4.685-3.457-7.035-5.18-3.537 1.716-7.059 3.46-10.592 5.188l-.389.18.12-.18c2.055-2.876 4.164-5.713 6.226-8.563L0 8.691c3.778-.05 7.552.047 11.327.04l5.237-7.143z" fill="#029547"></path></svg>';
 
+// --- per-player action buttons (Like / Block / Report) ----------------------
+// Rendered on card hover; each proxy-clicks FACEIT's native button of the same
+// index (0 Like, 1 Block, 2 Report) — see PLAYER_CARDS_SPEC §9. `currentColor`
+// so the button's own colour drives the glyph.
+export const ACTIONS = [
+  {
+    kind: "like",
+    index: 0,
+    title: "Recommend",
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M7 10v11M7 10l4-7a1.5 1.5 0 012.6 1l-.8 4H19a2 2 0 012 2.3l-1.2 6.4A2 2 0 0117.8 21H7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  },
+  {
+    kind: "block",
+    index: 1,
+    title: "Block",
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M5.6 5.6l12.8 12.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+  },
+  {
+    kind: "report",
+    index: 2,
+    title: "Report",
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 8v5M12 16v.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M10.3 3.9L2.5 18a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+  },
+];
+
 // membership -> subscription glyph/colour. Premium = gold star, Plus = cyan +.
 export function subBadge(memberships) {
   const m = (memberships || []).map((x) => String(x).toLowerCase());

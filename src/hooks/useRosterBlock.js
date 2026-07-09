@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Detects FACEIT's native matchroom roster. Anchors captured from the live DOM:
 //
@@ -17,11 +17,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // `Overview__Grid`/`Overview__Column`/`Roster__Wrapper` component-name prefixes
 // (only the `-sc-<hash>` suffix changes) and the `membership badge` data-testid.
 //
-// STICKY + effect keyed on a stable roster-id signature (not the players array)
-// so streaming stat updates don't re-detect every tick. See
-// roster-hide-must-be-sticky memory.
+// STICKY + effect keyed on the matchId (NOT the players array, and not a
+// player-id signature) so streaming stat updates — and match/v2 arriving — never
+// re-detect / momentarily un-hide the native roster. See
+// roster-hide-must-be-sticky memory. The card map (guid -> native row) is
+// refreshed out-of-band as players load (a separate effect), since detection no
+// longer re-runs when they do.
+//
+// INSTANT SWAP: each detected slot also carries a `domPlayers` list scraped
+// straight from the native rows (nickname + avatar). PlayerCards mounts our
+// cards from that immediately — the native roster is hidden the frame the grid
+// is fully rendered, without waiting for match/v2. Real elo/level/stats overlay
+// in when the fetch returns.
 
-const BADGE = '[data-testid="membership badge"]';
+// A player row. We anchor on the ROWS (which render with the username first),
+// NOT on the membership badges — those are part of the late-loading profile data
+// (sub / ESEA badges), so waiting for `>= 8` badges meant waiting for FACEIT to
+// finish loading everything before we swapped. Rows appear as soon as usernames
+// do, which is the earliest we can meaningfully render our cards.
+const BODY = '[class*="ListContentPlayer__Body"]';
 
 function isOurs(node) {
   const el = node?.nodeType === 1 ? node : node?.parentElement;
@@ -46,9 +60,28 @@ function clickTarget(body) {
   return body.querySelector('[class*="PlayerCardContainer"]') || body;
 }
 
+// The player's avatar URL straight from the native row's <img>, so our instant
+// DOM skeleton card can show the real avatar before match/v2 returns. FACEIT
+// renders it as an <img>; inline SVG placeholders (data: URIs) are ignored so
+// the card falls back to its own empty-avatar styling instead.
+function scrapeAvatar(body) {
+  const img = body.querySelector("img");
+  const src = img?.getAttribute("src") || img?.src || "";
+  return /^https?:/i.test(src) ? src : null;
+}
+
+// The team columns of a grid: those holding >= 2 player rows (the middle
+// map/score/server column has none). Anchoring on rows, not badges, so we match
+// as soon as the roster renders — before elo/level/avatar/badges stream in.
+function teamColumnsOf(grid) {
+  return [...grid.children].filter(
+    (col) => col.querySelectorAll(BODY).length >= 2,
+  );
+}
+
 function findGrid() {
   for (const g of document.querySelectorAll('[class*="Overview__Grid"]')) {
-    if (g.querySelectorAll(BADGE).length >= 8) return g;
+    if (teamColumnsOf(g).length >= 2) return g;
   }
   return null;
 }
@@ -62,19 +95,30 @@ function readRoster(players) {
   const cardFor = {};
   const nickToRow = {};
 
-  for (const col of grid.children) {
-    if (col.querySelectorAll(BADGE).length < 2) continue; // skip middle column
+  for (const col of teamColumnsOf(grid)) {
     const wrapper = col.querySelector('[class*="Roster__Wrapper"]') || col;
-    const bodies = [...col.querySelectorAll('[class*="ListContentPlayer__Body"]')];
-    const nicks = [];
+    const bodies = [...col.querySelectorAll(BODY)];
+    const domPlayers = [];
     for (const b of bodies) {
       const n = nicknameOf(b);
       if (n) {
-        nicks.push(n);
-        nickToRow[n.toLowerCase()] = clickTarget(b);
+        domPlayers.push({ nickname: n, avatar: scrapeAvatar(b) });
+        // Keep BOTH the profile click target (PlayerCardContainer) and the row
+        // body — the body is where the native Like/Block/Report buttons live, and
+        // we proxy-click them from our own hover action buttons (see PLAYER_CARDS_SPEC §9).
+        nickToRow[n.toLowerCase()] = { card: clickTarget(b), body: b };
       }
     }
-    teamSlots.push({ colEl: col, hideEl: wrapper, nicks });
+    // Only trust a column once at least one username has rendered — otherwise
+    // we'd hide the native roster and show a blank column for a frame.
+    if (domPlayers.length > 0) {
+      teamSlots.push({
+        colEl: col,
+        hideEl: wrapper,
+        nicks: domPlayers.map((d) => d.nickname),
+        domPlayers,
+      });
+    }
   }
   if (teamSlots.length < 2) return null;
 
@@ -86,21 +130,12 @@ function readRoster(players) {
   return { blockEl: grid, teamSlots, cardFor };
 }
 
-export default function useRosterBlock(players) {
+export default function useRosterBlock(matchId, players) {
   const [result, setResult] = useState(null);
   const playersRef = useRef(players);
   playersRef.current = players;
   const cardForRef = useRef({});
   const stickyRef = useRef(null); // { blockEl, teamSlots }
-
-  const idsKey = useMemo(
-    () =>
-      (players || [])
-        .map((p) => p.profile.id)
-        .sort()
-        .join(","),
-    [players],
-  );
 
   useEffect(() => {
     stickyRef.current = null;
@@ -126,6 +161,12 @@ export default function useRosterBlock(players) {
       cardForRef.current = next?.cardFor ?? {};
       if (next) {
         stickyRef.current = { blockEl: next.blockEl, teamSlots: next.teamSlots };
+        // Hide the native rosters SYNCHRONOUSLY, right here — so the incomplete
+        // native cards (username/elo/party only) never get a frame on screen.
+        // React then mounts our skeleton into the freed columns a commit later
+        // (PlayercCards' mount effect re-applies this idempotently and owns the
+        // cleanup that restores the native roster).
+        for (const s of next.teamSlots) s.hideEl.classList.add("fvh-cards-hidden");
         setResult({ teamSlots: next.teamSlots, cardForRef });
       } else if (stickyRef.current) {
         stickyRef.current = null;
@@ -135,6 +176,14 @@ export default function useRosterBlock(players) {
 
     const observer = new MutationObserver((mutations) => {
       if (mutations.every((m) => isOurs(m.target))) return;
+      // Until we've locked onto this room's roster, run SYNCHRONOUSLY (once per
+      // mutation batch) and hide the native rows the same tick they appear — no
+      // rAF / React-commit wait — so the incomplete native cards never paint.
+      // Once sticky, coalesce refreshes on a debounce.
+      if (!stickyRef.current) {
+        update();
+        return;
+      }
       clearTimeout(timer);
       timer = setTimeout(update, 150);
     });
@@ -145,7 +194,17 @@ export default function useRosterBlock(players) {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [idsKey]);
+  }, [matchId]);
+
+  // Refresh the guid -> native-row map when players load. Detection is keyed on
+  // matchId (so it doesn't re-run / un-hide when data streams in), which means it
+  // won't rebuild `cardFor` on its own — so do it here off the still-present
+  // native rows. cardForRef is read at click time, so no re-render is needed.
+  useEffect(() => {
+    if (!stickyRef.current) return;
+    const fresh = readRoster(players);
+    if (fresh) cardForRef.current = fresh.cardFor;
+  }, [players]);
 
   return result;
 }

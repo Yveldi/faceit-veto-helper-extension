@@ -88,7 +88,12 @@ export default function App() {
       )}
       {/* Replaces FACEIT's native roster with our own player cards */}
       {settings.replacePlayerCards && (
-        <PlayerCards data={data} statsEnabled={settings.showPlayerCardStats} />
+        <PlayerCards
+          matchId={matchId}
+          data={data}
+          selfUserId={selfUserId}
+          statsEnabled={settings.showPlayerCardStats}
+        />
       )}
     </>
   );
