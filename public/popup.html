@@ -385,6 +385,9 @@
         padding-left: 0;
         border-left: none;
       }
+      .reveal-content .sub-option + .sub-option {
+        margin-top: 12px;
+      }
       .reveal-content .pref-section {
         margin: 0;
       }
@@ -572,22 +575,21 @@
               <span class="slider"></span>
             </label>
           </div>
+          <div class="sub-option">
+            <div>
+              <span class="title">Player tracking</span>
+              <span class="desc">
+                Remember who you played with &amp; against; adds a history chip
+                to cards.
+              </span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="playerTrackingEnabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
       </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <span class="title">Player tracking</span>
-        <span class="desc">
-          Remember who you played with &amp; against; adds a history chip to
-          cards. Fetches in the background, always behind the veto helper.
-        </span>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="playerTrackingEnabled" />
-        <span class="slider"></span>
-      </label>
     </div>
 
     <hr />

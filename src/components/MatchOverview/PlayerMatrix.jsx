@@ -62,6 +62,7 @@ export default function PlayerMatrix({
   mapThumbnails,
   playedMap,
   phase,
+  selfUserId,
   hoverCol,
   onColEnter,
   onColLeave,
@@ -123,8 +124,12 @@ export default function PlayerMatrix({
             <div className="pmRows">
               {team.roster.map((p) => {
                 const elo = p.profile.games?.cs2?.faceit_elo;
+                const isSelf = !!selfUserId && p.profile.id === selfUserId;
                 return (
-                  <div className="pmRow" key={p.profile.id}>
+                  <div
+                    className={`pmRow${isSelf ? " self" : ""}`}
+                    key={p.profile.id}
+                  >
                     <span className="pmRowLabel">
                       <span className="pmName">{p.profile.nickname}</span>
                       {elo ? (

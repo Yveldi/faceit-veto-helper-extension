@@ -79,11 +79,57 @@ function teamColumnsOf(grid) {
   );
 }
 
-function findGrid() {
-  for (const g of document.querySelectorAll('[class*="Overview__Grid"]')) {
-    if (teamColumnsOf(g).length >= 2) return g;
+// How many sample points inside the grid actually hit-test to the grid itself
+// (i.e. it's the layer on top there). FACEIT can render the SAME match's roster
+// in TWO stacked, both-CSS-visible layers: when a room is opened as a
+// ContextualView overlay (e.g. via a profile's "MATCHROOM" button before the
+// match starts), a base-page `Overview__Grid` sits UNDER an overlay
+// `Overview__Grid` inside `ContextualView__Content`. `offsetParent`/`display`/
+// `visibility` all pass for both, so the only reliable way to tell which one the
+// user actually sees is to hit-test: the occluded layer owns 0 of its own
+// centre points. Without this we'd hide/mount into the hidden base layer while
+// the untouched overlay roster stays on screen — the cards never appear.
+function centerOwnership(grid) {
+  const r = grid.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return 0;
+  const pts = [
+    [0.5, 0.15],
+    [0.5, 0.5],
+    [0.25, 0.3],
+    [0.75, 0.3],
+  ];
+  let owned = 0;
+  for (const [fx, fy] of pts) {
+    const el = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy);
+    if (el && grid.contains(el)) owned++;
   }
-  return null;
+  return owned;
+}
+
+function gridCandidates() {
+  const out = [];
+  for (const g of document.querySelectorAll('[class*="Overview__Grid"]')) {
+    if (teamColumnsOf(g).length >= 2) out.push(g);
+  }
+  return out;
+}
+
+function findGrid() {
+  const candidates = gridCandidates();
+  if (candidates.length <= 1) return candidates[0] ?? null;
+  // Multiple roster grids (stacked layers) — pick the one actually on top at its
+  // own centre. Fall back to document order if hit-testing is inconclusive
+  // (e.g. all momentarily occluded or off-screen).
+  let best = candidates[0];
+  let bestOwned = -1;
+  for (const g of candidates) {
+    const owned = centerOwnership(g);
+    if (owned > bestOwned) {
+      bestOwned = owned;
+      best = g;
+    }
+  }
+  return bestOwned > 0 ? best : candidates[0];
 }
 
 // Build the two team slots + the player-id -> native row map.
@@ -149,7 +195,13 @@ export default function useRosterBlock(matchId, players) {
       if (
         sticky &&
         document.contains(sticky.blockEl) &&
-        sticky.teamSlots.every((s) => document.contains(s.colEl))
+        sticky.teamSlots.every((s) => document.contains(s.colEl)) &&
+        // If a SECOND roster grid has since appeared and now occludes the one we
+        // locked onto (a ContextualView overlay mounting over the base layer, or
+        // vice-versa), drop stickiness so we re-detect and switch to the visible
+        // layer. Only pay for the hit-test when a rival grid actually exists —
+        // the common single-grid room never reaches this.
+        !(gridCandidates().length > 1 && centerOwnership(sticky.blockEl) === 0)
       ) {
         // Keep the block; just refresh the card map (rows can re-render).
         const fresh = readRoster(playersRef.current);

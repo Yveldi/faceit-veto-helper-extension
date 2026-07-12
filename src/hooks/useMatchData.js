@@ -60,6 +60,22 @@ function isMultiMapVeto(sources) {
   return (candidates?.length ?? 0) >= 2;
 }
 
+// The lone pre-determined map in a single-map / no-veto lobby, read straight from
+// whichever pool source the payload exposes (maps or tree). Lets us highlight it
+// as "now playing" immediately, without waiting for `voting.map.pick` to be
+// recorded — FACEIT only populates that AFTER the server veto finishes, so during
+// an active server veto the map is present as the lone candidate but not yet a
+// `pick`. Null for a real multi-map veto (its played map is decided live by
+// useVetoProgress) or when the payload lists no maps yet.
+function singleCandidateMap(sources) {
+  if (isMultiMapVeto(sources)) return null;
+  const candidates =
+    (sources.fromTree?.length ?? 0) >= (sources.fromMaps?.length ?? 0)
+      ? sources.fromTree
+      : sources.fromMaps;
+  return candidates?.length === 1 ? candidates[0].class_name : null;
+}
+
 // Wait, honoring the abort signal so navigating away cancels promptly.
 function delay(ms, signal) {
   return new Promise((resolve) => {
@@ -239,6 +255,18 @@ export default function useMatchData(
             name: team.name,
             avatar: team.avatar,
             roster: team.roster.map(skeletonPlayer),
+            // Substitutes + coaches render as compact cards with NO stats band
+            // (see PlayerCards), so we don't stream stats for them — just the
+            // inline profile (nickname/elo/level/memberships) the payload already
+            // carries. They are SEPARATE from `roster` on purpose: the win-prob
+            // math must stay the 5 starters (a `playing:true` sub is only
+            // *eligible*, not confirmed to have played — see the findings doc).
+            substitutes: (team.substitutes ?? []).map((e) => ({
+              profile: rosterProfile(e),
+            })),
+            coaches: (team.coaches ?? []).map((e) => ({
+              profile: rosterProfile(e),
+            })),
           })),
         );
 
@@ -386,13 +414,18 @@ export default function useMatchData(
   // The map the match has settled on, once it's been determined — surfaced so the
   // displayed pool can highlight the card for the map actually being played
   // (regardless of pool size or the Regret Helper). Prefer the veto's explicit
-  // pick; fall back to `payload.maps` once it lists a single map. Null while the
-  // veto is still ongoing (no map decided yet).
+  // pick; fall back to `payload.maps` once it lists a single map; finally, in a
+  // single-map / no-veto lobby, use the lone candidate map directly so the
+  // highlight shows during the server veto too (before `pick` is recorded). Real
+  // multi-map vetos stay null here and are decided live from the DOM by
+  // useVetoProgress. Null while a real veto is still ongoing (no map decided yet).
   const playedMap = useMemo(() => {
-    const pick = mapData?.pick ?? [];
+    if (!mapData) return null;
+    const pick = mapData.pick ?? [];
     if (pick.length === 1) return pick[0];
-    const fromMaps = mapData?.fromMaps ?? [];
-    return fromMaps.length === 1 ? fromMaps[0].class_name : null;
+    const fromMaps = mapData.fromMaps ?? [];
+    if (fromMaps.length === 1) return fromMaps[0].class_name;
+    return singleCandidateMap(mapData);
   }, [mapData]);
 
   const mainTeamIndex = useMemo(

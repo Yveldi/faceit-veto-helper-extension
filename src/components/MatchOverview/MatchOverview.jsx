@@ -16,6 +16,7 @@ export default function MatchOverview({
   mainTeamIndex,
   phase,
   cardPhase,
+  selfUserId,
   isDragging,
 }) {
   const [hoverCol, setHoverCol] = useState(null);
@@ -42,6 +43,7 @@ export default function MatchOverview({
         mapThumbnails={mapThumbnails}
         playedMap={playedMap}
         phase={phase}
+        selfUserId={selfUserId}
         hoverCol={hoverCol}
         onColEnter={setHoverCol}
         onColLeave={() => setHoverCol(null)}

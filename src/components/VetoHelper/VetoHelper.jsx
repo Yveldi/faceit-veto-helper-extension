@@ -47,7 +47,7 @@ function statusFor(phase, loadedCount, totalCount) {
 // (Stage 2/3) are BOTH mounted, stacked at the same corner, and crossfaded by
 // opacity/scale so switching stages animates instead of snapping. The panel
 // itself stays mounted across Stage 2<->3 (its width tweens via PanelShell).
-export default function VetoHelper({ matchId, data, locked }) {
+export default function VetoHelper({ matchId, data, selfUserId, locked }) {
   const [stage, setStage] = useState(2);
   const [position, setPosition] = useState(null); // null until loaded
   const windowRef = useRef(null);
@@ -227,6 +227,7 @@ export default function VetoHelper({ matchId, data, locked }) {
               winSummaries={winSummaries}
               phase={phase}
               cardPhase={cardPhase}
+              selfUserId={selfUserId}
               isDragging={isDragging}
             />
           ) : (

@@ -5,9 +5,10 @@
 // requests for loading the page" rule). See PlayerCard.MD for the response
 // shape.
 //
-// We accumulate a guid -> { country, frame, animatedFrame, profileBg } map and
-// let components subscribe so cards re-render as summaries arrive (they may land
-// just before or after our roster mounts, depending on timing).
+// We accumulate a guid -> { country, verificationLevel, hubBadge, frame,
+// animatedFrame, profileBg } map and let components subscribe so cards re-render
+// as summaries arrive (they may land just before or after our roster mounts,
+// depending on timing).
 
 const CHANNEL = "fvh-user-summary";
 
@@ -28,6 +29,19 @@ function parseEntry(entry) {
       : typeof entry.verification?.level === "number"
         ? entry.verification.level
         : null;
+
+  // Supported-club/hub badge (the top-left avatar badge). FACEIT carries it here
+  // as `hub_supports[].badge.image_url` — an opaque image cropped to a circle by
+  // the card. Take the first one a player supports.
+  let hubBadge = null;
+  const hubs = Array.isArray(entry.hub_supports) ? entry.hub_supports : [];
+  for (const s of hubs) {
+    const url = s?.badge?.image_url;
+    if (typeof url === "string" && url) {
+      hubBadge = url;
+      break;
+    }
+  }
 
   let frame = null;
   let animatedFrame = null;
@@ -57,6 +71,7 @@ function parseEntry(entry) {
   return {
     country,
     verificationLevel,
+    hubBadge,
     frame,
     animatedFrame,
     profileBg,

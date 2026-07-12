@@ -19,7 +19,7 @@ import {
 const storage =
   globalThis.chrome?.storage?.local ?? globalThis.browser?.storage?.local;
 
-const COOLDOWN_MS = 30 * 60 * 1000; // 30-minute incremental cooldown
+const COOLDOWN_MS = 15 * 60 * 1000; // 15-minute incremental cooldown
 const LOCK_TTL_MS = 60 * 1000; // lease length; renewed via heartbeat
 const LOCK_HEARTBEAT_MS = 20 * 1000;
 const LIST_SIZE = 90;
@@ -30,7 +30,6 @@ const TAB_ID = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 
 let running = false;
 let stopped = false;
-let rearmTimer = null;
 let lockTimer = null;
 let currentSelf = null;
 
@@ -128,7 +127,7 @@ async function harvestOnce(selfId, signal) {
   const now = Date.now();
   const incremental = meta.fullBackfillDone;
 
-  // Incremental runs respect the 30-minute cooldown; backfill ignores it.
+  // Incremental runs respect the cooldown; backfill ignores it.
   if (incremental && now - (meta.lastSyncAt || 0) < COOLDOWN_MS) return;
 
   const rounds = await fetchMatchRounds(
@@ -183,9 +182,11 @@ async function runGuarded(selfId, signal) {
   }
 }
 
-// Public: start harvesting for `selfId`. Idempotent per self id. Schedules a
-// re-arm so an incremental run fires when the cooldown elapses even if the user
-// never navigates.
+// Public: start harvesting for `selfId`. Idempotent per self id. Runs once on
+// start (backfill / catch-up); subsequent incremental runs are driven by
+// `triggerHarvest()` (called when a match is found — see App), not a timer.
+// The recently-encountered set only changes when the user plays a match, so
+// there's nothing to poll for between matches.
 export function startHarvester(selfId) {
   if (!selfId || !storage) return;
   if (currentSelf === selfId && !stopped) return;
@@ -198,16 +199,21 @@ export function startHarvester(selfId) {
   startHarvester._controller = controller;
 
   runGuarded(selfId, signal);
-  rearmTimer = setInterval(() => {
-    if (!stopped) runGuarded(selfId, signal);
-  }, COOLDOWN_MS);
+}
+
+// Public: run an incremental harvest now (respecting the cooldown inside
+// harvestOnce). Fired when a match is found, so newly-played matches are
+// recorded near-instantly. No-op if the harvester isn't running.
+export function triggerHarvest() {
+  if (stopped || !currentSelf) return;
+  const signal = startHarvester._controller?.signal;
+  if (!signal) return;
+  runGuarded(currentSelf, signal);
 }
 
 export function stopHarvester() {
   stopped = true;
   currentSelf = null;
-  clearInterval(rearmTimer);
-  rearmTimer = null;
   clearInterval(lockTimer);
   lockTimer = null;
   startHarvester._controller?.abort();

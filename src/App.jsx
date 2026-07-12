@@ -7,13 +7,19 @@ import useSettings from "./hooks/useSettings";
 import useMatchIdFromUrl from "./hooks/useMatchIdFromUrl";
 import useSelfUserId from "./hooks/useSelfUserId";
 import useMatchData from "./hooks/useMatchData";
+import useMatchDetector from "./hooks/useMatchDetector";
 import { saveSelfMapStats } from "./settings";
-import { startHarvester, stopHarvester } from "./playerTracking/harvester";
+import {
+  startHarvester,
+  stopHarvester,
+  triggerHarvest,
+} from "./playerTracking/harvester";
 
 export default function App() {
   const settings = useSettings();
   const matchId = useMatchIdFromUrl();
   const selfUserId = useSelfUserId();
+  const matchDialog = useMatchDetector();
 
   // "always" only applies when the Regret Helper is on (kept in sync by the
   // popup; enforced here too so stale storage can't break it).
@@ -54,6 +60,17 @@ export default function App() {
     return () => stopHarvester();
   }, [settings.playerTrackingEnabled, selfUserId]);
 
+  // Harvest the moment a match is found (same detection as auto-accept). The
+  // recently-encountered set only changes when you play, so this replaces
+  // periodic polling: newly-played matches are recorded near-instantly, and the
+  // 15-minute cooldown inside harvestOnce skips redundant runs (e.g. a cancelled
+  // match right after the accept prompt).
+  useEffect(() => {
+    if (matchDialog && settings.playerTrackingEnabled && selfUserId) {
+      triggerHarvest();
+    }
+  }, [matchDialog, settings.playerTrackingEnabled, selfUserId]);
+
   // Cache the user's own per-map stats whenever match data finishes loading —
   // auto-veto's win-value fallback (see AUTOVETO_SPEC.md). Runs regardless of
   // which feature triggered the load.
@@ -79,6 +96,7 @@ export default function App() {
         <VetoHelper
           matchId={matchId}
           data={data}
+          selfUserId={selfUserId}
           locked={settings.vetoHelperLocked}
         />
       )}

@@ -1,111 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { getFlagSvg } from "../../flags";
 import {
-  ESEA_SVG,
-  hasEsea,
+  avatarStyle,
   histMeta,
   statTiles,
-  subBadge,
+  statusIcon,
+  statusMeta,
   verifyCheckSvg,
 } from "./cardHelpers";
 import LevelIcon from "./LevelIcon";
-import { getPlayerHistory } from "../../playerTracking/store";
+import HistoryPopover from "./HistoryPopover";
+import CardBadges from "./CardBadges";
+import StatusPopover from "./StatusPopover";
 
-// Relative "2d ago" style label from unix seconds.
-function ago(unixSeconds) {
-  if (!unixSeconds) return "";
-  const secs = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds);
-  const d = Math.floor(secs / 86400);
-  if (d >= 1) return `${d}d`;
-  const h = Math.floor(secs / 3600);
-  if (h >= 1) return `${h}h`;
-  const m = Math.floor(secs / 60);
-  return `${m}m`;
-}
-
-function Flag({ code }) {
+// Country flag with no `title` — the browser's "kr"/"gb" tooltip on hover was
+// noise; the flag is purely visual. Shared with the compact sub/coach card.
+export function Flag({ code }) {
   const svg = getFlagSvg(code);
   if (!svg) return null;
   return (
-    <span
-      className="fvh-pc-flag"
-      title={code}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
-}
-
-const ROOM_URL = "https://www.faceit.com/en/cs2/room/";
-
-// The popover is PORTALED to document.body and positioned fixed from the chip's
-// rect, so it renders on top of everything and is never clipped by the roster
-// column's overflow (the left team used to crop it). It's closeable, so drawing
-// over the middle column is fine.
-function HistoryPopover({ guid, meta, anchorRect }) {
-  const rows = getPlayerHistory(guid);
-  const W = 250;
-  const left = Math.max(
-    8,
-    Math.min(anchorRect.left, window.innerWidth - W - 8),
-  );
-  const top = Math.min(anchorRect.bottom + 6, window.innerHeight - 260);
-  return createPortal(
-    // Wrapped in a bare .fvh-root so the scoped `.fvh-root .fvh-pc-histpop`
-    // styles (and the host-CSS reset) actually apply once portaled to body.
-    <div
-      className="fvh-root"
-      style={{ position: "fixed", left, top, zIndex: 2147483000 }}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <div className="fvh-pc-histpop" style={{ position: "static" }}>
-      <div className="fvh-pc-histhead">
-        <span style={{ color: meta.color }}>
-          {meta.glyph} {meta.label}
-        </span>
-        <span className="fvh-pc-histcount">{rows.length} matches</span>
-      </div>
-      <div className="fvh-pc-histscroll">
-        {rows.map((r, i) => {
-          const win = (r.score?.[0] ?? 0) > (r.score?.[1] ?? 0);
-          return (
-            <a
-              className="fvh-pc-histrow"
-              key={r.matchId + i}
-              href={ROOM_URL + r.matchId}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <span
-                className="fvh-pc-histres"
-                style={{
-                  color: win ? "#6fe09a" : "#ff8585",
-                  background: win
-                    ? "rgba(56,196,104,.16)"
-                    : "rgba(232,65,46,.15)",
-                }}
-              >
-                {win ? "W" : "L"}
-              </span>
-              <div className="fvh-pc-histmid">
-                <div className="fvh-pc-histscore">
-                  {(r.score?.[0] ?? 0)} - {(r.score?.[1] ?? 0)}
-                </div>
-                <div className="fvh-pc-histago">{ago(r.date)} ago</div>
-              </div>
-              <span
-                className="fvh-pc-histside"
-                style={{ color: r.sameTeam ? "#6fe09a" : "#ff8585" }}
-              >
-                {r.sameTeam ? "WITH" : "VERSUS"}
-              </span>
-            </a>
-          );
-        })}
-      </div>
-      </div>
-    </div>,
-    document.body,
+    <span className="fvh-pc-flag" dangerouslySetInnerHTML={{ __html: svg }} />
   );
 }
 
@@ -115,7 +29,11 @@ function HistoryPopover({ guid, meta, anchorRect }) {
 export default function PlayerCard({
   player,
   summary,
+  league,
+  fpl,
   encounter,
+  status,
+  tier,
   mirror,
   statsEnabled,
   isSelf,
@@ -127,8 +45,11 @@ export default function PlayerCard({
   const [hover, setHover] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState(null);
+  const [statOpen, setStatOpen] = useState(false);
+  const [statRect, setStatRect] = useState(null);
   const wrapRef = useRef(null);
   const chipRef = useRef(null);
+  const pillRef = useRef(null);
 
   useEffect(() => {
     if (!histOpen) return;
@@ -144,10 +65,10 @@ export default function PlayerCard({
   const profile = player.profile;
   const elo = profile?.games?.cs2?.faceit_elo ?? 0;
   const country = summary?.country;
-  const esea = hasEsea(profile?.memberships);
-  const sub = subBadge(profile?.memberships);
   const verifySvg = verifyCheckSvg(summary?.verificationLevel);
   const meta = histMeta(encounter);
+  // AFK/KICKED/LEAVER (design 9a): outline + left fade + under-name banner.
+  const sm = status ? statusMeta(status) : null;
   const tiles = statsEnabled ? statTiles(player.card) : null;
   const statsLoading = statsEnabled && !player.loaded;
   // Action buttons mirror FACEIT's native ones: read fresh on hover (they're only
@@ -157,9 +78,7 @@ export default function PlayerCard({
     hover && !isSelf && onAction && getActions ? getActions() : [];
   const showActions = actionList.length > 0;
 
-  const avatarStyle = profile?.avatar
-    ? { backgroundImage: `url('${profile.avatar}')` }
-    : {};
+  const avStyle = avatarStyle(profile?.avatar);
 
   // Cosmetics: static by default, the animated variant on hover (like FACEIT's
   // own cards). To avoid a jarring instant swap, the static and animated layers
@@ -178,7 +97,7 @@ export default function PlayerCard({
       ref={wrapRef}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ zIndex: histOpen ? 60 : 1 }}
+      style={{ zIndex: histOpen || statOpen ? 60 : 1 }}
     >
       {party?.bracket && (
         <div
@@ -188,9 +107,19 @@ export default function PlayerCard({
       )}
       <div
         className="fvh-pc-card"
+        style={sm ? { borderColor: sm.bd } : undefined}
         onClick={(e) => onOpenProfile?.(e.currentTarget.getBoundingClientRect())}
-        title="View profile"
       >
+        {/* Soft left fade tinting the card in the status colour (below the
+            z-index:2 content, above the bg/scrim). */}
+        {sm && (
+          <div
+            className="fvh-pc-statusfade"
+            style={{
+              background: `linear-gradient(90deg, ${sm.bg}, transparent 42%)`,
+            }}
+          />
+        )}
         {hasBg && (
           <>
             {staticBg && (
@@ -216,7 +145,7 @@ export default function PlayerCard({
         )}
         <div className="fvh-pc-row">
           <div className="fvh-pc-avatarwrap">
-            <div className="fvh-pc-avatar" style={avatarStyle} />
+            <div className="fvh-pc-avatar" style={avStyle} />
             {staticFrame && (
               <div
                 className="fvh-pc-frame"
@@ -235,22 +164,14 @@ export default function PlayerCard({
                 }}
               />
             )}
-            {sub && (
-              <span
-                className="fvh-pc-sub"
-                style={{ background: sub.color }}
-                title="Subscription"
-              >
-                {sub.glyph}
-              </span>
-            )}
-            {esea && (
-              <span
-                className="fvh-pc-esea"
-                title="ESEA subscriber"
-                dangerouslySetInnerHTML={{ __html: ESEA_SVG }}
-              />
-            )}
+            <CardBadges
+              memberships={profile?.memberships}
+              tier={tier}
+              hubBadge={summary?.hubBadge}
+              league={league}
+              fpl={fpl}
+              mirror={mirror}
+            />
           </div>
 
           <div className="fvh-pc-namecol">
@@ -289,6 +210,31 @@ export default function PlayerCard({
                 </span>
               )}
             </div>
+            {/* Status banner pill in normal flow directly under the name (9a). */}
+            {sm && (
+              <span
+                ref={pillRef}
+                className="fvh-pc-statuspill"
+                style={{
+                  color: sm.color,
+                  background: sm.bg,
+                  border: `1px solid ${sm.bd}`,
+                }}
+                onMouseEnter={() => {
+                  if (pillRef.current) {
+                    setStatRect(pillRef.current.getBoundingClientRect());
+                  }
+                  setStatOpen(true);
+                }}
+                onMouseLeave={() => setStatOpen(false)}
+              >
+                <span
+                  className="fvh-pc-statuspill-ic"
+                  dangerouslySetInnerHTML={{ __html: statusIcon(sm.icon, 9) }}
+                />
+                {sm.label}
+              </span>
+            )}
           </div>
 
           <div className="fvh-pc-right">
@@ -387,6 +333,11 @@ export default function PlayerCard({
       {meta && histOpen && anchorRect && (
         <HistoryPopover guid={profile.id} meta={meta} anchorRect={anchorRect} />
       )}
+
+      {sm && statOpen && statRect && (
+        <StatusPopover meta={sm} anchorRect={statRect} />
+      )}
+
     </div>
   );
 }

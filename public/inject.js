@@ -3,28 +3,49 @@
 // isolated content-script world — so it can wrap the page's own `fetch` /
 // `XMLHttpRequest` and read the responses FACEIT itself fetches.
 //
-// The only thing we harvest is FACEIT's `user-summary/v2/list` call, which the
-// matchroom fires on load. It carries, per player: `country` (flag), and the
-// equipped cosmetics (`active_cosmetic_items` -> avatar frame + profile-card
-// background). We do NOT make this request ourselves (the extension's hard rule
-// is "no new network requests for loading the page"); we only read what the
-// page already loads and relay it to the content script via window.postMessage.
+// We harvest two of FACEIT's own matchroom calls (we NEVER make either — the
+// extension's hard rule is "no new network requests for loading the page"; we
+// only read what the page already loads and relay it to the content script via
+// window.postMessage):
+//   1. `user-summary/v2/list` — per player: `country` (flag) + equipped
+//      cosmetics (`active_cosmetic_items` -> avatar frame + profile-card bg).
+//   2. `team-leagues/.../users:batchGetCurrent` — per player: current ESEA
+//      league division + region (drives the ESEA-star hover popover).
+//   3. `fpl/v1/users/details` — per player: FPL position + config (drives the
+//      FPL badge that replaces the ESEA badge, and its hover popover).
 //
 // Plain, dependency-free JS: it lives in public/ and is copied verbatim to
 // dist/ (it is never bundled, so it must not use imports or JSX).
 (function () {
   "use strict";
 
-  const TARGET = "/user-summary/v2/list";
-  const CHANNEL = "fvh-user-summary";
+  // Each target maps a URL substring to the postMessage channel the content
+  // script listens on. Add a new pair here to piggyback another FACEIT call.
+  const TARGETS = [
+    { match: "/user-summary/v2/list", channel: "fvh-user-summary" },
+    { match: "users:batchGetCurrent", channel: "fvh-team-leagues" },
+    { match: "/fpl/v1/users/details", channel: "fvh-fpl" },
+  ];
+
+  function targetFor(url) {
+    if (!url) return null;
+    const u = String(url);
+    for (const t of TARGETS) {
+      if (u.indexOf(t.match) !== -1) return t;
+    }
+    return null;
+  }
 
   // Relay a captured payload to the isolated content script. Same window, so a
   // postMessage crosses the MAIN <-> isolated world boundary. We forward the raw
-  // JSON; the content side pulls out country/cosmetics per guid.
-  function relay(json) {
+  // JSON payload; the content side pulls out what it needs.
+  function relay(channel, json) {
     try {
       if (!json) return;
-      window.postMessage({ source: CHANNEL, payload: json.payload ?? json }, window.location.origin);
+      window.postMessage(
+        { source: channel, payload: json.payload ?? json },
+        window.location.origin,
+      );
     } catch {
       // ignore — a bad/large payload must never break the page
     }
@@ -36,14 +57,15 @@
     window.fetch = function (input, init) {
       const url = typeof input === "string" ? input : input && input.url;
       const promise = origFetch.apply(this, arguments);
-      if (url && url.indexOf(TARGET) !== -1) {
+      const target = targetFor(url);
+      if (target) {
         promise
           .then((res) => {
             // Clone so we never consume the body the page is waiting on.
             res
               .clone()
               .json()
-              .then(relay)
+              .then((json) => relay(target.channel, json))
               .catch(() => {});
           })
           .catch(() => {});
@@ -62,11 +84,12 @@
       return origOpen.apply(this, arguments);
     };
     XHR.prototype.send = function () {
-      if (this.__fvhUrl && String(this.__fvhUrl).indexOf(TARGET) !== -1) {
+      const target = targetFor(this.__fvhUrl);
+      if (target) {
         this.addEventListener("load", function () {
           try {
             const text = this.responseText;
-            if (text) relay(JSON.parse(text));
+            if (text) relay(target.channel, JSON.parse(text));
           } catch {
             // ignore
           }
