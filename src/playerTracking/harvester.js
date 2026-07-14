@@ -75,7 +75,7 @@ function toUnixSeconds(iso) {
 }
 
 // Deduped, matchmaking-only list entries (newest-first) from the self
-// match-rounds list. Each: { matchId, date, score:[you,them] }.
+// match-rounds list. Each: { matchId, date, score:[you,them], map }.
 function listFromRounds(rounds) {
   const seen = new Set();
   const out = [];
@@ -88,6 +88,7 @@ function listFromRounds(rounds) {
       matchId,
       date: toUnixSeconds(r.end_time),
       score: [r.team_score ?? 0, r.opponent_team_score ?? 0],
+      map: r.map || "",
     });
   }
   return out;
@@ -116,6 +117,7 @@ function recordFromPayload(payload, selfId, listEntry) {
   return {
     d: listEntry.date,
     s: listEntry.score,
+    m: listEntry.map,
     t: mine.filter((id) => id !== selfId),
     o: theirs,
   };

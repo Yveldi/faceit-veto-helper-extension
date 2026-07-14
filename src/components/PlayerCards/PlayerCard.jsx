@@ -331,7 +331,7 @@ export default function PlayerCard({
       </div>
 
       {meta && histOpen && anchorRect && (
-        <HistoryPopover guid={profile.id} meta={meta} anchorRect={anchorRect} />
+        <HistoryPopover guid={profile.id} anchorRect={anchorRect} />
       )}
 
       {sm && statOpen && statRect && (

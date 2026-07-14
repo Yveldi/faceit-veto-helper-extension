@@ -31,9 +31,10 @@ export default function CornerPopover({
 }) {
   const W = 198;
   const gap = 8;
-  // Sit beside the badge: to the right for the left team, to the left when the
-  // card is mirrored (right team). Clamp to the viewport on both axes.
-  let left = mirror ? anchorRect.left - gap - W : anchorRect.right + gap;
+  // Always sit to the LEFT of the badge (for both teams), so it never covers the
+  // player card. Clamp to the viewport on both axes (the clamp shifts it right
+  // only when placing it left would run off the screen edge).
+  let left = anchorRect.left - gap - W;
   left = Math.max(8, Math.min(left, window.innerWidth - W - 8));
   const top = Math.max(
     8,

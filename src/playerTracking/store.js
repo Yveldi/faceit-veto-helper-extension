@@ -3,7 +3,9 @@
 // chrome.storage.local, separate from settings (it's data, not preferences).
 //
 // Schema:
-//   playerTrackingMatches = { [matchId]: { d, s:[you,them], t:[guid...], o:[guid...] } }
+//   playerTrackingMatches = { [matchId]: { d, s:[you,them], m:map, t:[guid...], o:[guid...] } }
+//   (`m` = the played map's class_name; absent on records harvested before it
+//   was recorded, which the history popover tolerates.)
 //   playerTrackingOrder   = [matchId, ...]  // newest-first; eviction tail
 //   playerTrackingMeta    = { fullBackfillDone, lastSyncAt }
 // An in-memory index (guid -> matchId[]) is derived on load for O(1) reads.
@@ -148,7 +150,7 @@ export function getEncounters(guids) {
   return out;
 }
 
-// [{ matchId, date, score, sameTeam }] newest-first for one player.
+// [{ matchId, date, score, map, sameTeam }] newest-first for one player.
 export function getPlayerHistory(guid) {
   const ids = index.get(guid);
   if (!ids) return [];
@@ -160,6 +162,7 @@ export function getPlayerHistory(guid) {
         matchId: id,
         date: rec.d,
         score: rec.s,
+        map: rec.m || "",
         sameTeam: (rec.t || []).includes(guid),
       };
     })
