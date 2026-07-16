@@ -1,0 +1,32 @@
+/* Position Caller editor (option 3c). Mostly inline styles (lifted verbatim from
+   the design so pixel/colour/motion values are exact); this file holds only the
+   host-CSS reset, the entrance keyframe, and the focus/placeholder rules that
+   can't be inline. Scoped under .fvh-spot-root so faceit.com's globals (which
+   collapse line-height / box-sizing when they inherit in) can't distort it — the
+   same isolation the Veto Helper needs. Self-contained so the editor is correct
+   even when the Veto Helper (which loads the shared reset) is disabled. */
+.fvh-spot-root,
+.fvh-spot-root * {
+  box-sizing: border-box;
+}
+.fvh-spot-root {
+  line-height: normal;
+  font-family: "Play", system-ui, sans-serif;
+}
+.fvh-spot-input::placeholder {
+  color: #6b7078;
+  opacity: 1;
+}
+.fvh-spot-input:focus {
+  border-color: rgba(255, 106, 31, 0.45) !important;
+}
+@keyframes fvhspotpop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

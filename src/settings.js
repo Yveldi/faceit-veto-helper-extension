@@ -4,7 +4,16 @@
 // callback form), so we don't need the webextension-polyfill here.
 
 export const SETTINGS_DEFAULTS = {
+  // Global master switch (the control panel header toggle). When off, EVERY
+  // feature pauses at once (nothing is hidden, the individual toggles keep their
+  // values) — the content script gates all features on this. On by default.
+  globalEnabled: true,
+
   autoAcceptEnabled: true,
+  // "One-time accept": arm once, auto-accept the next match, then disarm itself.
+  // Ignored while autoAcceptEnabled is on (the permanent one wins). Off by
+  // default. Cleared automatically after the accept it triggered.
+  oneTimeAcceptEnabled: false,
   autoAcceptDelay: 10, // seconds, 1–27
   vetoHelperEnabled: true,
   // "Veto Regret Helper™": only affects single-map lobbies (nothing to ban).
@@ -58,7 +67,94 @@ export const SETTINGS_DEFAULTS = {
   // makes its OWN background requests (a match/v2 per past match) — always behind
   // the Veto Helper (see PLAYER_TRACKING_SPEC.md).
   playerTrackingEnabled: false,
+
+  // Position Caller (see design_handoff_veto_helper/position-caller.md). Auto-
+  // sends your per-map "call" to the matchroom Team chat when the map locks in.
+  // Off by default: it posts messages on your behalf, so it's strictly opt-in.
+  // Only ever acts in MATCHMAKING lobbies (entity.type === "matchmaking") — never
+  // championships or 5-stack custom lobbies (calling positions to your friends
+  // would be embarrassing). When enabled it always fires at whichever moment the
+  // map becomes known — immediately if the lobby loads with the map already
+  // decided (single-map / server-only-veto), else when the map veto concludes;
+  // there's no per-trigger toggle. `spotDuo` sends a different call when queued as
+  // a duo (see the duo fallback rule in the spec). The per-map calls themselves
+  // live in the `spotCalls` storage key, not here (they're data, and change via
+  // the editor, not a preference toggle).
+  spotEnabled: false,
+  spotDuo: false,
 };
+
+// The Position Caller map pool: the up-to-date active 7, NO Overpass, in the
+// design's order. class_names, keyed into defaultMapThumbnail for thumbnails.
+export const SPOT_MAP_IDS = [
+  "de_dust2",
+  "de_mirage",
+  "de_nuke",
+  "de_ancient",
+  "de_inferno",
+  "de_anubis",
+  "de_cache",
+];
+
+// Per-map call config: { on, msg, duoMsg } for each pool map. Default every map
+// ON but with EMPTY messages — so enabling the feature sends nothing until the
+// user actually writes calls (a map with no message is skipped). `duoMsg` blank
+// means "use the solo call for duos too".
+export function spotCallsDefaults() {
+  return Object.fromEntries(
+    SPOT_MAP_IDS.map((id) => [id, { on: true, msg: "", duoMsg: "" }]),
+  );
+}
+
+// Load the per-map calls, reconciled against the current pool (drops maps no
+// longer in the pool, adds any new pool maps with defaults).
+export function loadSpotCalls() {
+  return new Promise((resolve) => {
+    const defaults = spotCallsDefaults();
+    if (!storage) return resolve(defaults);
+    storage.get({ spotCalls: null }, (items) => {
+      const stored = items.spotCalls || {};
+      const merged = {};
+      for (const id of SPOT_MAP_IDS) {
+        const s = stored[id] || {};
+        merged[id] = {
+          on: typeof s.on === "boolean" ? s.on : true,
+          msg: typeof s.msg === "string" ? s.msg : "",
+          duoMsg: typeof s.duoMsg === "string" ? s.duoMsg : "",
+        };
+      }
+      resolve(merged);
+    });
+  });
+}
+
+export function saveSpotCalls(calls) {
+  if (storage && calls) storage.set({ spotCalls: calls });
+}
+
+// Cross-reload / cross-tab "already fired for this match" flag. Storing just the
+// last match id is enough: we only ever ask "did I already call for THIS match?",
+// and it flips to allow again the moment the match changes. Persisted so a reload
+// of the same room (or a second tab that loads it) doesn't re-send.
+export function markSpotFired(matchId) {
+  if (storage && matchId) storage.set({ spotFiredMatch: matchId });
+}
+
+export function getSpotFiredMatch() {
+  return new Promise((resolve) => {
+    if (!storage) return resolve(null);
+    storage.get({ spotFiredMatch: null }, (items) =>
+      resolve(items.spotFiredMatch),
+    );
+  });
+}
+
+// The control panel can't host the 620px editor (the toolbar popup is tiny and
+// closes on blur), so "Set map calls" pings this key; the content script (running
+// on whatever faceit.com tab is focused) opens the editor in response.
+export function pingSpotEditor() {
+  if (storage) storage.set({ spotEditorPing: Date.now() });
+}
 
 const storage =
   globalThis.chrome?.storage?.local ?? globalThis.browser?.storage?.local;

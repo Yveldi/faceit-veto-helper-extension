@@ -1,9 +1,12 @@
-// Control panel logic. Plain JS (MV3 blocks inline scripts) shared by Chrome
-// and Firefox via the `chrome` namespace. Keep the defaults in sync with
-// src/settings.js SETTINGS_DEFAULTS.
+// Control panel logic — the "Aurora Glass" categorised redesign. Plain JS (MV3
+// blocks inline scripts), shared by Chrome and Firefox via the `chrome`
+// namespace. Keep DEFAULTS in sync with src/settings.js SETTINGS_DEFAULTS.
 const api = globalThis.chrome ?? globalThis.browser;
+
 const DEFAULTS = {
+  globalEnabled: true,
   autoAcceptEnabled: true,
+  oneTimeAcceptEnabled: false,
   autoAcceptDelay: 10,
   vetoHelperEnabled: true,
   vetoHelperLocked: false,
@@ -23,76 +26,136 @@ const DEFAULTS = {
   replacePlayerCards: true,
   showPlayerCardStats: true,
   playerTrackingEnabled: false,
+  spotEnabled: false,
+  spotDuo: false,
 };
 
+// The four navigable categories on the left icon rail (design order; rail opens
+// on Veto Helper). Icons are the design's inline stroke SVGs.
+const ICON = {
+  accept:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  vhelper:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>',
+  autoveto:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6 18.4 18.4"/></svg>',
+  social:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.3"/><path d="M2.8 20a6.2 6.2 0 0 1 12.4 0"/><path d="M16.5 5.3a3.2 3.2 0 0 1 0 5.9"/><path d="M18 20a6 6 0 0 0-3-5.1"/></svg>',
+};
+const CATS = [
+  { key: "accept", name: "Auto Accept", icon: ICON.accept },
+  { key: "vhelper", name: "Veto Helper", icon: ICON.vhelper },
+  { key: "autoveto", name: "Auto Veto", icon: ICON.autoveto },
+  { key: "social", name: "Social", icon: ICON.social },
+];
+const DEFAULT_NAV = "vhelper";
+
+const $ = (id) => document.getElementById(id);
 const els = {
-  autoAcceptEnabled: document.getElementById("autoAcceptEnabled"),
-  autoAcceptDelay: document.getElementById("autoAcceptDelay"),
-  delayValue: document.getElementById("delayValue"),
-  delayRow: document.getElementById("delayRow"),
-  vetoHelperEnabled: document.getElementById("vetoHelperEnabled"),
-  vetoHelperLocked: document.getElementById("vetoHelperLocked"),
-  vetoLockReveal: document.getElementById("vetoLockReveal"),
-  regretHelperEnabled: document.getElementById("regretHelperEnabled"),
-  regretHelperAlways: document.getElementById("regretHelperAlways"),
-  regretAlwaysReveal: document.getElementById("regretAlwaysReveal"),
-  autoVetoEnabled: document.getElementById("autoVetoEnabled"),
-  autoVetoGroup: document.getElementById("autoVetoGroup"),
-  autoVetoDelay: document.getElementById("autoVetoDelay"),
-  autoVetoDelayValue: document.getElementById("autoVetoDelayValue"),
-  autoVetoServers: document.getElementById("autoVetoServers"),
-  overridesHeader: document.getElementById("overridesHeader"),
-  autoVetoWorstFirstEnabled: document.getElementById(
-    "autoVetoWorstFirstEnabled",
-  ),
-  worstFirstFeature: document.getElementById("worstFirstFeature"),
-  autoVetoWorstFirstReveal: document.getElementById("autoVetoWorstFirstReveal"),
-  autoVetoWorstFirstGap: document.getElementById("autoVetoWorstFirstGap"),
-  autoVetoWorstFirstGapValue: document.getElementById(
-    "autoVetoWorstFirstGapValue",
-  ),
-  worstFirstExample: document.getElementById("worstFirstExample"),
-  autoVetoProtectFloorEnabled: document.getElementById(
-    "autoVetoProtectFloorEnabled",
-  ),
-  protectFloorFeature: document.getElementById("protectFloorFeature"),
-  autoVetoProtectFloorReveal: document.getElementById(
-    "autoVetoProtectFloorReveal",
-  ),
-  autoVetoProtectFloor: document.getElementById("autoVetoProtectFloor"),
-  autoVetoProtectFloorValue: document.getElementById(
-    "autoVetoProtectFloorValue",
-  ),
-  protectFloorExample: document.getElementById("protectFloorExample"),
-  prefToggle: document.getElementById("prefToggle"),
-  prefEditor: document.getElementById("prefEditor"),
-  serverReveal: document.getElementById("serverReveal"),
-  zoneFirst: document.getElementById("zoneFirst"),
-  zoneDynamic: document.getElementById("zoneDynamic"),
-  zoneLast: document.getElementById("zoneLast"),
-  zoneServer: document.getElementById("zoneServer"),
-  replacePlayerCards: document.getElementById("replacePlayerCards"),
-  cardStatsReveal: document.getElementById("cardStatsReveal"),
-  showPlayerCardStats: document.getElementById("showPlayerCardStats"),
-  playerTrackingEnabled: document.getElementById("playerTrackingEnabled"),
-  accessWarn: document.getElementById("accessWarn"),
-  accessWarnGrant: document.getElementById("accessWarnGrant"),
-  accessWarnDismiss: document.getElementById("accessWarnDismiss"),
+  // shell / nav
+  globalEnabled: $("globalEnabled"),
+  masterLabel: $("masterLabel"),
+  cpBody: $("cpBody"),
+  cpRail: $("cpRail"),
+  cpEyebrow: $("cpEyebrow"),
+  // auto accept
+  autoAcceptEnabled: $("autoAcceptEnabled"),
+  oneTimeCard: $("oneTimeCard"),
+  oneTimeAcceptEnabled: $("oneTimeAcceptEnabled"),
+  oneTimeNote: $("oneTimeNote"),
+  autoAcceptDelay: $("autoAcceptDelay"),
+  delayValue: $("delayValue"),
+  // veto helper
+  vetoHelperEnabled: $("vetoHelperEnabled"),
+  vetoHelperLocked: $("vetoHelperLocked"),
+  vetoLockReveal: $("vetoLockReveal"),
+  regretHelperEnabled: $("regretHelperEnabled"),
+  regretHelperAlways: $("regretHelperAlways"),
+  regretAlwaysReveal: $("regretAlwaysReveal"),
+  // auto veto
+  autoVetoEnabled: $("autoVetoEnabled"),
+  autoVetoSubs: $("autoVetoSubs"),
+  autoVetoDelay: $("autoVetoDelay"),
+  autoVetoDelayValue: $("autoVetoDelayValue"),
+  overridesHeader: $("overridesHeader"),
+  autoVetoWorstFirstEnabled: $("autoVetoWorstFirstEnabled"),
+  worstFirstFeature: $("worstFirstFeature"),
+  autoVetoWorstFirstReveal: $("autoVetoWorstFirstReveal"),
+  autoVetoWorstFirstGap: $("autoVetoWorstFirstGap"),
+  autoVetoWorstFirstGapValue: $("autoVetoWorstFirstGapValue"),
+  worstFirstExample: $("worstFirstExample"),
+  autoVetoProtectFloorEnabled: $("autoVetoProtectFloorEnabled"),
+  protectFloorFeature: $("protectFloorFeature"),
+  autoVetoProtectFloorReveal: $("autoVetoProtectFloorReveal"),
+  autoVetoProtectFloor: $("autoVetoProtectFloor"),
+  autoVetoProtectFloorValue: $("autoVetoProtectFloorValue"),
+  protectFloorExample: $("protectFloorExample"),
+  autoVetoServers: $("autoVetoServers"),
+  serverReveal: $("serverReveal"),
+  zoneFirst: $("zoneFirst"),
+  zoneDynamic: $("zoneDynamic"),
+  zoneLast: $("zoneLast"),
+  zoneServer: $("zoneServer"),
+  // social
+  replacePlayerCards: $("replacePlayerCards"),
+  cardStatsReveal: $("cardStatsReveal"),
+  showPlayerCardStats: $("showPlayerCardStats"),
+  playerTrackingEnabled: $("playerTrackingEnabled"),
+  spotEnabled: $("spotEnabled"),
+  spotReveal: $("spotReveal"),
+  spotDuo: $("spotDuo"),
+  spotEditBtn: $("spotEditBtn"),
+  // access warning
+  accessWarn: $("accessWarn"),
+  accessWarnGrant: $("accessWarnGrant"),
+  accessWarnDismiss: $("accessWarnDismiss"),
 };
 
-// The origin every feature depends on. Must match the manifest host_permissions.
+function save(partial) {
+  api.storage.local.set(partial);
+}
+
+// ---------------------------------------------------------------------------
+// Reveals — animated max-height. The popup window is a fixed 400×574 with an
+// internal scroll pane, so (unlike the old auto-sizing popup) opening a reveal
+// only grows content inside the scroll area; no window re-measure is needed.
+// ---------------------------------------------------------------------------
+const REVEAL_MS = 240; // keep in sync with the .reveal transition
+function setReveal(reveal, open) {
+  clearTimeout(reveal._fvhTimer);
+  reveal.classList.toggle("open", open); // drives the opacity/slide
+
+  // Initial population: jump straight to the resting state, no animation.
+  if (document.body.classList.contains("no-anim")) {
+    reveal.style.maxHeight = open ? "none" : "0px";
+    return;
+  }
+
+  if (open) {
+    reveal.style.maxHeight = `${reveal.scrollHeight}px`;
+  } else {
+    reveal.style.maxHeight = `${reveal.offsetHeight}px`;
+    void reveal.offsetHeight; // reflow so the collapse animates
+    reveal.style.maxHeight = "0px";
+  }
+
+  // Settle to a clean resting height once the animation is done, so an open
+  // reveal isn't pinned to a stale pixel height when its content later changes.
+  reveal._fvhTimer = setTimeout(() => {
+    reveal.style.maxHeight = reveal.classList.contains("open") ? "none" : "0px";
+  }, REVEAL_MS + 40);
+}
+
+// ---------------------------------------------------------------------------
+// Site-access warning — orthogonal to the feature toggles. Without host access
+// the content script never runs, so nothing works regardless of settings.
+// ---------------------------------------------------------------------------
 const FACEIT_ORIGINS = ["*://*.faceit.com/*"];
 
-// Resolve whether we currently have host access to faceit.com, via `cb(granted)`.
-// We DON'T use permissions.contains({origins:[broad pattern]}): when the user
-// picks "Always allow on www.faceit.com" from the toolbar, Firefox records the
-// grant scoped to that site, which contains() won't treat as covering the broad
-// manifest pattern — so it falsely reports "not granted". Instead we read the
-// actually-granted origins with getAll() and check if any of them mentions
-// faceit.com (host_permissions are optional-by-default in MV3, so this list
-// reflects the real user choice: present when allowed, absent when "Only When
-// Clicked"). Falls back to contains(), then to "assume granted" so we never nag
-// when we genuinely can't tell.
+// Resolve whether we currently have host access to faceit.com via `cb(granted)`.
+// getAll() reflects the real user choice (host_permissions are optional-by-
+// default in MV3): present when allowed, absent under "Only When Clicked". Falls
+// back to contains(), then "assume granted" so we never nag when unsure.
 function hasFaceitAccess(cb) {
   const perms = api.permissions;
   if (perms?.getAll) {
@@ -112,11 +175,6 @@ function hasFaceitAccess(cb) {
   cb(true);
 }
 
-// Show the site-access warning unless the extension currently has host access to
-// faceit.com. This is orthogonal to the feature toggles: without access the
-// content script never runs, so nothing works regardless of settings. Re-checked
-// on every popup open (the warning is dismissable per-open, never persisted, so
-// it reappears until access is actually granted).
 function refreshAccessWarning() {
   hasFaceitAccess((granted) => {
     els.accessWarn.classList.toggle("show", !granted);
@@ -131,147 +189,103 @@ els.accessWarnGrant.addEventListener("click", () => {
     if (granted) els.accessWarn.classList.remove("show");
   });
 });
-
 els.accessWarnDismiss.addEventListener("click", () => {
   els.accessWarn.classList.remove("show");
 });
 
-function save(partial) {
-  api.storage.local.set(partial);
+// ---------------------------------------------------------------------------
+// Icon rail + category navigation
+// ---------------------------------------------------------------------------
+let currentNav = DEFAULT_NAV;
+
+function buildRail() {
+  els.cpRail.replaceChildren(
+    ...CATS.map((c) => {
+      const btn = document.createElement("button");
+      btn.className = "cp-rail-item";
+      btn.dataset.nav = c.key;
+      const ico = document.createElement("span");
+      ico.className = "cp-rail-ico";
+      ico.innerHTML = c.icon;
+      const name = document.createElement("span");
+      name.className = "cp-rail-name";
+      name.textContent = c.name;
+      btn.append(ico, name);
+      btn.addEventListener("click", () => setNav(c.key));
+      return btn;
+    }),
+  );
 }
 
-// Force the auto-sizing popup window to re-measure to the exact document height.
-// Setting an explicit html height (then clearing it next frame) hits the instant
-// resize path that always lands correctly, so the window can't stay stuck at a
-// size it reached while chasing the animation (e.g. after a fast double-click).
-function snapPanel() {
-  const html = document.documentElement;
-  html.style.height = `${document.body.scrollHeight}px`;
-  void html.offsetHeight; // commit
-  requestAnimationFrame(() => {
-    html.style.height = "";
-  });
-}
-
-// Open/close a reveal with a smooth height animation (real measured max-height,
-// so siblings glide down). The popup window lags while chasing that height, so
-// once the animation settles we lock the element to a clean resting height and
-// snapPanel() the window to the exact size. The settle timer is reset on every
-// toggle, so only the final state triggers the snap.
-const REVEAL_MS = 240; // keep in sync with the .reveal transition
-function setReveal(reveal, open) {
-  clearTimeout(reveal._fvhTimer);
-  reveal.classList.toggle("open", open); // drives the opacity/slide
-  document.documentElement.style.height = ""; // clear any prior snap pin
-
-  // Initial population: jump straight to the resting state, no animation.
-  if (document.body.classList.contains("no-anim")) {
-    reveal.style.maxHeight = open ? "none" : "0px";
-    return;
+function setNav(key) {
+  currentNav = key;
+  const cat = CATS.find((c) => c.key === key) || CATS[0];
+  els.cpEyebrow.textContent = cat.name;
+  for (const item of els.cpRail.querySelectorAll(".cp-rail-item")) {
+    item.classList.toggle("active", item.dataset.nav === key);
   }
-
-  if (open) {
-    // animate from the current height up to the measured content height
-    reveal.style.maxHeight = `${reveal.scrollHeight}px`;
-  } else {
-    // pin the current rendered height, then collapse to 0 so it animates down
-    reveal.style.maxHeight = `${reveal.offsetHeight}px`;
-    void reveal.offsetHeight; // reflow so the next change transitions
-    reveal.style.maxHeight = "0px";
+  for (const panel of document.querySelectorAll(".cp-panel")) {
+    panel.classList.toggle("active", panel.dataset.panel === key);
   }
-
-  // After the animation, settle to a clean resting height and snap the window so
-  // it can never be left at an interrupted (wrong) size.
-  reveal._fvhTimer = setTimeout(() => {
-    reveal.style.maxHeight = reveal.classList.contains("open") ? "none" : "0px";
-    snapPanel();
-  }, REVEAL_MS + 40);
+  save({ cpNav: key });
 }
 
-// --- worked examples for the two map overrides ------------------------------
-// id->name (set in initEditor) and the example map pair per feature. The second
-// map is re-rolled when the popup opens or the map lists change, so it's never
-// stale; the slider only re-renders the numbers.
-let mapNameById = {};
-const exampleMaps = { worstFirst: null, protect: null };
-
-function reflectDelayEnabled() {
-  const on = els.autoAcceptEnabled.checked;
-  els.delayRow.classList.toggle("disabled", !on);
-  els.autoAcceptDelay.disabled = !on;
+// ---------------------------------------------------------------------------
+// Global master switch — pauses every feature at once (content script gates on
+// it). Here it just dims/disables the body row; the header switch stays live.
+// ---------------------------------------------------------------------------
+function reflectMaster() {
+  const on = els.globalEnabled.checked;
+  els.cpBody.classList.toggle("master-off", !on);
+  els.masterLabel.textContent = on ? "On" : "Off";
+  els.masterLabel.classList.toggle("on", on);
 }
-
-// "Always show full pool" is a sub-option of the Regret Helper: it's only shown
-// (and only meaningful) while the Regret Helper is on. Toggling `.open` plays
-// the reveal animation (suppressed on first load by body.no-anim).
-function reflectRegretLink() {
-  setReveal(els.regretAlwaysReveal, els.regretHelperEnabled.checked);
-}
-
-// "Lock the veto helper" only matters while the Veto helper is on.
-function reflectVetoLock() {
-  setReveal(els.vetoLockReveal, els.vetoHelperEnabled.checked);
-}
-
-// "Show card stats" is a sub-option of the player-card replacement: only shown
-// (and only meaningful) while the replacement is on.
-function reflectCardStatsLink() {
-  setReveal(els.cardStatsReveal, els.replacePlayerCards.checked);
-}
-
-function applyBasicSettings(s) {
-  els.autoAcceptEnabled.checked = s.autoAcceptEnabled;
-  els.autoAcceptDelay.value = s.autoAcceptDelay;
-  els.delayValue.textContent = s.autoAcceptDelay;
-  els.vetoHelperEnabled.checked = s.vetoHelperEnabled;
-  els.vetoHelperLocked.checked = s.vetoHelperLocked;
-  els.regretHelperEnabled.checked = s.regretHelperEnabled;
-  // Invariant: "always" only applies when the Regret Helper is on. Normalise
-  // any stale state and persist the fix.
-  const always = s.regretHelperAlways && s.regretHelperEnabled;
-  els.regretHelperAlways.checked = always;
-  if (always !== s.regretHelperAlways) save({ regretHelperAlways: always });
-  els.replacePlayerCards.checked = s.replacePlayerCards;
-  els.showPlayerCardStats.checked = s.showPlayerCardStats;
-  els.playerTrackingEnabled.checked = s.playerTrackingEnabled;
-  reflectDelayEnabled();
-  reflectRegretLink();
-  reflectVetoLock();
-  reflectCardStatsLink();
-}
-
-els.replacePlayerCards.addEventListener("change", () => {
-  save({ replacePlayerCards: els.replacePlayerCards.checked });
-  reflectCardStatsLink();
+els.globalEnabled.addEventListener("change", () => {
+  save({ globalEnabled: els.globalEnabled.checked });
+  reflectMaster();
 });
 
-els.showPlayerCardStats.addEventListener("change", () => {
-  save({ showPlayerCardStats: els.showPlayerCardStats.checked });
-});
-
-els.playerTrackingEnabled.addEventListener("change", () => {
-  save({ playerTrackingEnabled: els.playerTrackingEnabled.checked });
-});
+// ---------------------------------------------------------------------------
+// Auto Accept
+// ---------------------------------------------------------------------------
+// One-time accept can't be armed while the permanent Auto accept is running, so
+// it grays out (pointer-inert) and shows a note whenever Auto accept is on.
+function reflectOneTime() {
+  const disabled = els.autoAcceptEnabled.checked;
+  els.oneTimeCard.classList.toggle("disabled", disabled);
+  els.oneTimeNote.style.display = disabled ? "block" : "none";
+}
 
 els.autoAcceptEnabled.addEventListener("change", () => {
   save({ autoAcceptEnabled: els.autoAcceptEnabled.checked });
-  reflectDelayEnabled();
+  reflectOneTime();
 });
-
+els.oneTimeAcceptEnabled.addEventListener("change", () => {
+  save({ oneTimeAcceptEnabled: els.oneTimeAcceptEnabled.checked });
+});
 els.autoAcceptDelay.addEventListener("input", () => {
   els.delayValue.textContent = els.autoAcceptDelay.value;
 });
-
 els.autoAcceptDelay.addEventListener("change", () => {
   save({ autoAcceptDelay: Number(els.autoAcceptDelay.value) });
 });
+
+// ---------------------------------------------------------------------------
+// Veto Helper
+// ---------------------------------------------------------------------------
+function reflectVetoLock() {
+  setReveal(els.vetoLockReveal, els.vetoHelperEnabled.checked);
+}
+function reflectRegretLink() {
+  setReveal(els.regretAlwaysReveal, els.regretHelperEnabled.checked);
+}
 
 els.vetoHelperEnabled.addEventListener("change", () => {
   const on = els.vetoHelperEnabled.checked;
   const update = { vetoHelperEnabled: on };
   // Turning the Veto helper off resets the window: clear the lock and the saved
-  // position, so a lost or locked-off-screen window is recoverable by toggling
-  // it off and on (it comes back unlocked at the default spot).
+  // position so a lost or locked-off-screen window is recoverable by toggling
+  // it off and on (it returns unlocked at the default spot).
   if (!on) {
     update.vetoHelperLocked = false;
     update.vetoHelperPosition = null;
@@ -280,15 +294,12 @@ els.vetoHelperEnabled.addEventListener("change", () => {
   save(update);
   reflectVetoLock();
 });
-
 els.vetoHelperLocked.addEventListener("change", () => {
   save({ vetoHelperLocked: els.vetoHelperLocked.checked });
 });
-
 els.regretHelperEnabled.addEventListener("change", () => {
   const on = els.regretHelperEnabled.checked;
   const update = { regretHelperEnabled: on };
-  // Turning the Regret Helper off also turns "always" off.
   if (!on && els.regretHelperAlways.checked) {
     els.regretHelperAlways.checked = false;
     update.regretHelperAlways = false;
@@ -296,11 +307,9 @@ els.regretHelperEnabled.addEventListener("change", () => {
   save(update);
   reflectRegretLink();
 });
-
 els.regretHelperAlways.addEventListener("change", () => {
   const on = els.regretHelperAlways.checked;
   const update = { regretHelperAlways: on };
-  // Turning "always" on turns the Regret Helper on.
   if (on && !els.regretHelperEnabled.checked) {
     els.regretHelperEnabled.checked = true;
     update.regretHelperEnabled = true;
@@ -309,19 +318,15 @@ els.regretHelperAlways.addEventListener("change", () => {
   save(update);
 });
 
-// --- Auto veto --------------------------------------------------------------
-
+// ---------------------------------------------------------------------------
+// Auto Veto
+// ---------------------------------------------------------------------------
+// The whole preference sub-panel is shown (animated) only while Auto veto is on.
 function reflectAutoVetoEnabled() {
-  els.autoVetoGroup.classList.toggle("disabled", !els.autoVetoEnabled.checked);
+  setReveal(els.autoVetoSubs, els.autoVetoEnabled.checked);
 }
-
-// Each map override's threshold slider is only shown while its toggle is on, and
-// the server list only while server banning is on. All use the reveal animation.
 function reflectWorstFirst() {
-  setReveal(
-    els.autoVetoWorstFirstReveal,
-    els.autoVetoWorstFirstEnabled.checked,
-  );
+  setReveal(els.autoVetoWorstFirstReveal, els.autoVetoWorstFirstEnabled.checked);
 }
 function reflectProtectFloor() {
   setReveal(
@@ -337,19 +342,16 @@ els.autoVetoEnabled.addEventListener("change", () => {
   save({ autoVetoEnabled: els.autoVetoEnabled.checked });
   reflectAutoVetoEnabled();
 });
-
 els.autoVetoDelay.addEventListener("input", () => {
   els.autoVetoDelayValue.textContent = els.autoVetoDelay.value;
 });
 els.autoVetoDelay.addEventListener("change", () => {
   save({ autoVetoDelay: Number(els.autoVetoDelay.value) });
 });
-
 els.autoVetoServers.addEventListener("change", () => {
   save({ autoVetoServers: els.autoVetoServers.checked });
   reflectServerList();
 });
-
 els.autoVetoWorstFirstEnabled.addEventListener("change", () => {
   save({ autoVetoWorstFirstEnabled: els.autoVetoWorstFirstEnabled.checked });
   reflectWorstFirst();
@@ -361,7 +363,6 @@ els.autoVetoWorstFirstGap.addEventListener("input", () => {
 els.autoVetoWorstFirstGap.addEventListener("change", () => {
   save({ autoVetoWorstFirstGap: Number(els.autoVetoWorstFirstGap.value) });
 });
-
 els.autoVetoProtectFloorEnabled.addEventListener("change", () => {
   save({ autoVetoProtectFloorEnabled: els.autoVetoProtectFloorEnabled.checked });
   reflectProtectFloor();
@@ -374,19 +375,68 @@ els.autoVetoProtectFloor.addEventListener("change", () => {
   save({ autoVetoProtectFloor: Number(els.autoVetoProtectFloor.value) });
 });
 
-let prefOpen = false;
-els.prefToggle.addEventListener("click", () => {
-  prefOpen = !prefOpen;
-  setReveal(els.prefEditor, prefOpen); // animate the panel open/closed + snap
-  els.prefToggle.textContent = prefOpen
-    ? "Hide veto preferences ▴"
-    : "Edit veto preferences ▾";
+// ---------------------------------------------------------------------------
+// Social
+// ---------------------------------------------------------------------------
+function reflectCardStatsLink() {
+  setReveal(els.cardStatsReveal, els.replacePlayerCards.checked);
+}
+function reflectSpot() {
+  setReveal(els.spotReveal, els.spotEnabled.checked);
+}
+
+els.replacePlayerCards.addEventListener("change", () => {
+  save({ replacePlayerCards: els.replacePlayerCards.checked });
+  reflectCardStatsLink();
+});
+els.showPlayerCardStats.addEventListener("change", () => {
+  save({ showPlayerCardStats: els.showPlayerCardStats.checked });
+});
+els.playerTrackingEnabled.addEventListener("change", () => {
+  save({ playerTrackingEnabled: els.playerTrackingEnabled.checked });
+});
+els.spotEnabled.addEventListener("change", () => {
+  save({ spotEnabled: els.spotEnabled.checked });
+  reflectSpot();
+});
+els.spotDuo.addEventListener("change", () => {
+  save({ spotDuo: els.spotDuo.checked });
 });
 
-// --- preference drag-and-drop editor ----------------------------------------
+// "Set map calls" opens the editor over the focused faceit.com tab (the toolbar
+// popup is too small to host the 620px panel). Focus a faceit tab first, THEN
+// ping — the content script there opens the editor. Focusing another window
+// blurs the popup, so it closes on its own.
+els.spotEditBtn.addEventListener("click", () => {
+  const ping = () => api.storage.local.set({ spotEditorPing: Date.now() });
+  if (!api.tabs?.query) {
+    ping();
+    return;
+  }
+  api.tabs.query({ url: "*://*.faceit.com/*" }, (tabs) => {
+    if (api.runtime?.lastError || !tabs || !tabs.length) {
+      api.tabs.create?.({ url: "https://www.faceit.com/" });
+      ping();
+      return;
+    }
+    const tab = tabs.find((t) => t.active) || tabs[0];
+    api.tabs.update(tab.id, { active: true }, () => {
+      if (tab.windowId != null && api.windows?.update) {
+        api.windows.update(tab.windowId, { focused: true }, ping);
+      } else {
+        ping();
+      }
+    });
+  });
+});
 
-// The maps and servers are loaded from the same JSON the content script uses
-// (copied into dist/ by Vite), so the pool stays in one place.
+// ---------------------------------------------------------------------------
+// Preference drag-and-drop editor (maps + servers). Native HTML5 DnD, live DOM
+// reordering (no re-render), items constrained to their own group.
+// ---------------------------------------------------------------------------
+let mapNameById = {};
+const exampleMaps = { worstFirst: null, protect: null };
+
 function loadPools() {
   return Promise.all([
     fetch(api.runtime.getURL("mapPool.json")).then((r) => r.json()),
@@ -394,8 +444,7 @@ function loadPools() {
   ]).then(([maps, servers]) => ({ maps, servers }));
 }
 
-// Drop the saved ids that are no longer in the pool, and add any new pool maps
-// to the dynamic group (so new maps default to win-odds banning).
+// Drop saved ids no longer in the pool; add new pool maps to the dynamic group.
 function buildMapPrefs(stored, maps) {
   const ids = maps.map((m) => m.id);
   const has = (id) => ids.includes(id);
@@ -414,9 +463,8 @@ function buildServerPrefs(stored, serverNames) {
   return [...order, ...serverNames.filter((n) => !order.includes(n))];
 }
 
-// An item is { id, label, group, img } where `img` is an optional icon (a map
-// thumbnail or a country flag) shown before the label. Icons are sized in CSS so
-// the row height stays constant.
+// An item is { id, label, group, img, imgClass } — `img` is an optional icon (a
+// map thumbnail or a country flag) shown before the label.
 function makeItem({ id, label, group, img, imgClass }) {
   const el = document.createElement("div");
   el.className = "dd-item";
@@ -435,7 +483,6 @@ function makeItem({ id, label, group, img, imgClass }) {
   text.textContent = label;
   el.appendChild(text);
   el.addEventListener("dragstart", () => {
-    // Defer so the drag image is captured before the item is dimmed.
     setTimeout(() => el.classList.add("dragging"), 0);
   });
   el.addEventListener("dragend", () => {
@@ -448,12 +495,10 @@ function makeItem({ id, label, group, img, imgClass }) {
 function fillZone(zone, ids, itemFor) {
   zone.replaceChildren(...ids.map((id) => makeItem(itemFor(id))));
 }
-
 function readZone(zone) {
   return [...zone.querySelectorAll(".dd-item")].map((el) => el.dataset.id);
 }
 
-// The item to insert before, given the cursor Y within a zone (or null = end).
 function getAfterElement(zone, y) {
   const items = [...zone.querySelectorAll(".dd-item:not(.dragging)")];
   let closest = null;
@@ -469,9 +514,8 @@ function getAfterElement(zone, y) {
   return closest;
 }
 
-// Live-reordering sortable across one group of zones; items can be dragged
-// within and between them, but not into another group (maps vs servers). Calls
-// onChange after every drop (via the dd-change event the items dispatch).
+// Live-reordering sortable across one group of zones; items drag within and
+// between them, but not into another group (maps vs servers).
 function initSortable(zones, group, onChange) {
   for (const zone of zones) {
     zone.addEventListener("dragover", (e) => {
@@ -526,7 +570,6 @@ function initEditor(stored, pools) {
   const saveServers = () =>
     save({ autoVetoServerOrder: readZone(els.zoneServer) });
 
-  // After any map move, persist AND refresh the override visibility/examples.
   const onMaps = () => {
     saveMaps();
     refreshFeatureUI();
@@ -552,9 +595,7 @@ function exampleSecondId(dynamic, otherList, otherEnd) {
   return null;
 }
 
-// Re-pick the example map pair for each feature from the current lists. The
-// first map is the player's most extreme choice: top of ban-first ("most hated")
-// for worst-first, bottom of ban-last ("most protected") for protect.
+// Re-pick the example map pair for each override from the current lists.
 function pickExampleMaps() {
   const first = readZone(els.zoneFirst);
   const dynamic = readZone(els.zoneDynamic);
@@ -570,9 +611,6 @@ function pickExampleMaps() {
     : null;
 }
 
-// Build one worked example using the gap as the (boundary) difference. For
-// worst-first the player's pick is the better map and the worse one is banned
-// first; for protect the protected map is the worse one and gets banned.
 function renderExample(container, pair, gap, mode) {
   container.replaceChildren();
   if (!pair || !pair.firstId || !pair.secondId) return;
@@ -622,31 +660,48 @@ function renderExamples() {
   );
 }
 
-// Each override only does anything when the list it acts on (ban-first for
-// worst-first, ban-last for protect) has maps, so show it only then. Also
-// refresh the examples (re-rolling the random second map). Animated via setReveal.
+// Each override only does anything when the list it acts on has maps, so show it
+// only then (with the shared header). Also refresh the worked examples.
 function refreshFeatureUI() {
   pickExampleMaps();
   renderExamples();
   const hasFirst = readZone(els.zoneFirst).length > 0;
   const hasLast = readZone(els.zoneLast).length > 0;
-  // The shared header shows whenever either override is shown.
   setReveal(els.overridesHeader, hasFirst || hasLast);
   setReveal(els.worstFirstFeature, hasFirst);
   setReveal(els.protectFloorFeature, hasLast);
 }
 
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
 function getSettings() {
-  return new Promise((resolve) => api.storage.local.get(DEFAULTS, resolve));
+  return new Promise((resolve) =>
+    api.storage.local.get({ ...DEFAULTS, cpNav: DEFAULT_NAV }, resolve),
+  );
 }
 
-// One combined init pass: set every control (and every reveal) to its stored
-// state, THEN drop body.no-anim so the initial population never animates while
-// later user toggles do. The double rAF guarantees the no-anim state has been
-// painted before transitions are re-enabled.
-Promise.all([loadPools(), getSettings()]).then(([pools, s]) => {
-  refreshAccessWarning();
-  applyBasicSettings(s);
+function applySettings(s) {
+  els.globalEnabled.checked = s.globalEnabled;
+  reflectMaster();
+
+  els.autoAcceptEnabled.checked = s.autoAcceptEnabled;
+  els.oneTimeAcceptEnabled.checked = s.oneTimeAcceptEnabled;
+  els.autoAcceptDelay.value = s.autoAcceptDelay;
+  els.delayValue.textContent = s.autoAcceptDelay;
+  reflectOneTime();
+
+  els.vetoHelperEnabled.checked = s.vetoHelperEnabled;
+  els.vetoHelperLocked.checked = s.vetoHelperLocked;
+  els.regretHelperEnabled.checked = s.regretHelperEnabled;
+  // Invariant: "always" only applies when the Regret Helper is on. Normalise
+  // any stale state and persist the fix.
+  const always = s.regretHelperAlways && s.regretHelperEnabled;
+  els.regretHelperAlways.checked = always;
+  if (always !== s.regretHelperAlways) save({ regretHelperAlways: always });
+  reflectVetoLock();
+  reflectRegretLink();
+
   els.autoVetoEnabled.checked = s.autoVetoEnabled;
   els.autoVetoDelay.value = s.autoVetoDelay;
   els.autoVetoDelayValue.textContent = s.autoVetoDelay;
@@ -661,9 +716,26 @@ Promise.all([loadPools(), getSettings()]).then(([pools, s]) => {
   reflectWorstFirst();
   reflectProtectFloor();
   reflectServerList();
+
+  els.replacePlayerCards.checked = s.replacePlayerCards;
+  els.showPlayerCardStats.checked = s.showPlayerCardStats;
+  els.playerTrackingEnabled.checked = s.playerTrackingEnabled;
+  els.spotEnabled.checked = s.spotEnabled;
+  els.spotDuo.checked = s.spotDuo;
+  reflectCardStatsLink();
+  reflectSpot();
+}
+
+// One combined init pass: build the rail, set every control (and reveal) to its
+// stored state, THEN drop body.no-anim so the initial population never animates
+// while later user toggles do. Double rAF guarantees no-anim is painted first.
+buildRail();
+Promise.all([loadPools(), getSettings()]).then(([pools, s]) => {
+  refreshAccessWarning();
+  applySettings(s);
   initEditor(s, pools);
   refreshFeatureUI(); // override visibility + worked examples (instant on load)
-  setReveal(els.prefEditor, false); // editor starts collapsed (no animation)
+  setNav(CATS.some((c) => c.key === s.cpNav) ? s.cpNav : DEFAULT_NAV);
   requestAnimationFrame(() =>
     requestAnimationFrame(() => document.body.classList.remove("no-anim")),
   );

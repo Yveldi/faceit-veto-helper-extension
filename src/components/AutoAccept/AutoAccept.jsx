@@ -18,7 +18,7 @@ function findAcceptButton(dialog) {
 // shared ActionBar shows the countdown (mode "accept"); Cancel stops it, and the
 // far-left "Accept now" skips the wait. (Map-based cancel was removed: FACEIT no
 // longer exposes the map before you accept.)
-export default function AutoAccept({ enabled, delay }) {
+export default function AutoAccept({ enabled, delay, onAccepted }) {
   const dialog = useMatchDetector();
   const [phase, setPhase] = useState(null); // null | counting | done | cancelled
   const [remaining, setRemaining] = useState(0);
@@ -64,6 +64,7 @@ export default function AutoAccept({ enabled, delay }) {
         finish();
         reasonRef.current = "auto";
         acceptBtn?.click();
+        onAccepted?.();
         setPhase("done");
       } else {
         setRemaining(Math.max(0, delay - elapsed));
@@ -87,6 +88,7 @@ export default function AutoAccept({ enabled, delay }) {
     clearInterval(timerRef.current);
     reasonRef.current = "skip";
     findAcceptButton(dialog)?.click();
+    onAccepted?.();
     setPhase("done");
   };
 

@@ -219,6 +219,15 @@ export default function useMatchData(
 ) {
   const [teams, setTeams] = useState(null);
   const [mapData, setMapData] = useState(null);
+  // Match lifecycle facts read straight from the (single) match/v2 fetch:
+  //   entityType — payload.entity.type ("matchmaking" | "championship" | …). The
+  //                Position Caller only acts when this is "matchmaking".
+  //   state      — payload.state ("VOTING" | "SUBSTITUTION" | "CONFIGURING" |
+  //                "READY" | "ONGOING" | "FINISHED"). The Position Caller gates on
+  //                "VOTING" (an active veto window). Note this is the value AT
+  //                FETCH TIME — match/v2 isn't re-fetched, so consumers needing a
+  //                LATER state (a veto ending after load) must re-fetch themselves.
+  const [meta, setMeta] = useState(null);
   // loadedCount tracks WAVE 1 (the fast "time" stats) — that's when a player's
   // data appears on the board, so it drives the loading UI. finalCount tracks
   // WAVE 2 (real ratings from match-rounds), which `ready` gates on.
@@ -229,6 +238,7 @@ export default function useMatchData(
     // Drop stale data right away (the old match must not show over the new one).
     setTeams(null);
     setMapData(null);
+    setMeta(null);
     setLoadedCount(0);
     setFinalCount(0);
     if (!matchId) return;
@@ -250,6 +260,10 @@ export default function useMatchData(
 
         // Phase "maps": reveal the pool + a nickname-only skeleton immediately.
         setMapData(sources);
+        setMeta({
+          entityType: payload.entity?.type ?? null,
+          state: payload.state ?? null,
+        });
         setTeams(
           rawTeams.map((team) => ({
             name: team.name,
@@ -386,6 +400,10 @@ export default function useMatchData(
           if (signal.aborted) return;
           sources = payloadSources(next);
           setMapData(sources);
+          setMeta({
+            entityType: next.entity?.type ?? null,
+            state: next.state ?? null,
+          });
         }
       } catch (err) {
         if (!signal.aborted) {
@@ -471,5 +489,8 @@ export default function useMatchData(
     loadedCount,
     totalCount,
     ready,
+    // Load-time match lifecycle facts (see the `meta` state above).
+    entityType: meta?.entityType ?? null,
+    matchState: meta?.state ?? null,
   };
 }
